@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "VoiceCards",
+    "slug": "voicecards",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#080b14"
+    },
+    "android": {
+      "package": "com.voicecards.app",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.INTERNET"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-av",
+        {
+          "microphonePermission": "VoiceCards usa il microfono per riconoscere la tua risposta."
+        }
+      ]
+    ]
+  }
+}
