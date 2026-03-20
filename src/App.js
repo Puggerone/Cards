@@ -386,3 +386,4 @@ const s = StyleSheet.create({
   nrList: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   nrChip: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 20, backgroundColor: 'rgba(239,68,68,0.08)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.2)' },
   nrChipTxt: { fontSize: 11, color: '#f87171' },
+});
