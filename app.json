@@ -22,6 +22,11 @@
           "microphonePermission": "VoiceCards usa il microfono per riconoscere la tua risposta."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "b94cc19a-a435-422b-94a8-c463843fc48d"
+      }
+    }
   }
 }
