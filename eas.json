@@ -1,18 +1,31 @@
 {
-  "cli": {
-    "version": ">= 5.0.0"
-  },
-  "build": {
-    "preview": {
-      "android": {
-        "buildType": "apk",
-        "credentialsSource": "remote"
-      }
+  "expo": {
+    "name": "VoiceCards",
+    "slug": "voicecards",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#080b14"
     },
-    "production": {
-      "android": {
-        "buildType": "app-bundle",
-        "credentialsSource": "remote"
+    "android": {
+      "package": "com.voicecards.app",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.INTERNET"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-av",
+        {
+          "microphonePermission": "VoiceCards usa il microfono per riconoscere la tua risposta."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "INSERISCI_QUI_IL_TUO_PROJECT_ID"
       }
     }
   }
