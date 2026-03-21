@@ -9,34 +9,38 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Voice from '@react-native-voice/voice';
 import CARDS from './cards';
 
+const APP_VERSION = '1.3';
+
 const TAG_COLORS = {
-  a2:           { text: '#4ff7a0', bg: 'rgba(79,247,160,0.15)',  border: 'rgba(79,247,160,0.3)' },
-  b1:           { text: '#4f8ef7', bg: 'rgba(79,142,247,0.15)', border: 'rgba(79,142,247,0.3)' },
-  b2:           { text: '#f7934f', bg: 'rgba(247,147,79,0.15)',  border: 'rgba(247,147,79,0.3)' },
-  'phrasal-b1': { text: '#f7c94f', bg: 'rgba(247,201,79,0.15)', border: 'rgba(247,201,79,0.3)' },
-  'phrasal-b2': { text: '#e879f9', bg: 'rgba(232,121,249,0.15)',border: 'rgba(232,121,249,0.3)' },
+  a2:           { text:'#4ff7a0', bg:'rgba(79,247,160,0.15)',  border:'rgba(79,247,160,0.3)' },
+  b1:           { text:'#4f8ef7', bg:'rgba(79,142,247,0.15)', border:'rgba(79,142,247,0.3)' },
+  b2:           { text:'#f7934f', bg:'rgba(247,147,79,0.15)',  border:'rgba(247,147,79,0.3)' },
+  'phrasal-b1': { text:'#f7c94f', bg:'rgba(247,201,79,0.15)', border:'rgba(247,201,79,0.3)' },
+  'phrasal-b2': { text:'#e879f9', bg:'rgba(232,121,249,0.15)',border:'rgba(232,121,249,0.3)' },
 };
 const TAG_LABELS = { a2:'A2', b1:'B1', b2:'B2', 'phrasal-b1':'Phrasal B1', 'phrasal-b2':'Phrasal B2' };
 
 function shuffle(arr) {
   const a = [...arr];
-  for (let i = a.length-1; i>0; i--) {
-    const j = Math.floor(Math.random()*(i+1));
+  for (let i=a.length-1; i>0; i--) {
+    const j=Math.floor(Math.random()*(i+1));
     [a[i],a[j]]=[a[j],a[i]];
   }
   return a;
 }
 
 function checkAnswer(heard, expected) {
-  const clean = s => s.toLowerCase().replace(/[^a-z0-9 ]/g,'').trim();
-  const h = clean(heard), e = clean(expected);
-  if (h === e) return true;
-  const words = e.split(' ').filter(w=>w.length>2);
+  const clean = s=>s.toLowerCase().replace(/[^a-z0-9 ]/g,'').trim();
+  const h=clean(heard), e=clean(expected);
+  if (h===e) return true;
+  const words=e.split(' ').filter(w=>w.length>2);
   return words.some(w=>h.includes(w));
 }
 
 export default function App() {
-  const [mode, setMode] = useState('read');
+  const [mode, setMode] = useState('read');       // 'read' | 'voice'
+  const [useMic, setUseMic] = useState(true);     // microfono on/off in voice mode
+  const [paused, setPaused] = useState(false);    // pausa in voice mode
   const [filter, setFilter] = useState('all');
   const [isShuffled, setIsShuffled] = useState(false);
   const [deck, setDeck] = useState(CARDS);
@@ -46,8 +50,7 @@ export default function App() {
   const [showNR, setShowNR] = useState(false);
   const [countdown, setCountdown] = useState(3);
   const [voicePhase, setVoicePhase] = useState('idle');
-  // idle | speaking-it | listening | result-ok | result-fail | speaking-en
-  const [voiceFeedback, setVoiceFeedback] = useState(null); // null | 'correct' | 'wrong'
+  const [voiceFeedback, setVoiceFeedback] = useState(null);
   const [heardText, setHeardText] = useState('');
   const [micPermission, setMicPermission] = useState(false);
 
@@ -59,16 +62,17 @@ export default function App() {
   const voiceTimerRef = useRef(null);
   const listenTimeoutRef = useRef(null);
   const cancelledRef = useRef(false);
+  const pausedRef = useRef(false);
 
   // ── Permesso microfono ────────────────────────────────────────────
   useEffect(() => {
     const requestMic = async () => {
-      if (Platform.OS === 'android') {
+      if (Platform.OS==='android') {
         const granted = await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
           { title:'Microfono', message:'VoiceCards usa il microfono per la modalità Voice.' }
         );
-        setMicPermission(granted === PermissionsAndroid.RESULTS.GRANTED);
+        setMicPermission(granted===PermissionsAndroid.RESULTS.GRANTED);
       } else {
         setMicPermission(true);
       }
@@ -76,25 +80,20 @@ export default function App() {
     requestMic();
   }, []);
 
-  // ── Voice recognition setup ───────────────────────────────────────
+  // ── Voice recognition ─────────────────────────────────────────────
   useEffect(() => {
     Voice.onSpeechResults = (e) => {
-      if (cancelledRef.current) return;
+      if (cancelledRef.current || pausedRef.current) return;
       const heard = e.value?.[0] || '';
       setHeardText(heard);
       clearTimeout(listenTimeoutRef.current);
       Voice.stop();
     };
-    Voice.onSpeechEnd = () => {
-      // handled in onSpeechResults
-    };
     Voice.onSpeechError = () => {
-      if (cancelledRef.current) return;
+      if (cancelledRef.current || pausedRef.current) return;
       setHeardText('');
     };
-    return () => {
-      Voice.destroy().then(Voice.removeAllListeners);
-    };
+    return () => { Voice.destroy().then(Voice.removeAllListeners); };
   }, []);
 
   // ── Persistenza ───────────────────────────────────────────────────
@@ -127,17 +126,15 @@ export default function App() {
   // ── Build deck ────────────────────────────────────────────────────
   const buildDeck = useCallback((f, sh, nrList=[]) => {
     let d;
-    if (f==='all') d = CARDS;
-    else if (f==='review') d = nrList.map(i=>CARDS[i]).filter(Boolean);
-    else d = CARDS.filter(c=>c.tag===f);
-    if (sh) d = shuffle(d);
+    if (f==='all') d=CARDS;
+    else if (f==='review') d=nrList.map(i=>CARDS[i]).filter(Boolean);
+    else d=CARDS.filter(c=>c.tag===f);
+    if (sh) d=shuffle(d);
     return d.length ? d : CARDS;
   }, []);
 
   const applyFilter = (f) => {
-    setFilter(f);
-    setDeck(buildDeck(f, isShuffled, notRemembered));
-    setIdx(0);
+    setFilter(f); setDeck(buildDeck(f,isShuffled,notRemembered)); setIdx(0);
   };
 
   // ── Animazioni ────────────────────────────────────────────────────
@@ -160,8 +157,35 @@ export default function App() {
       Animated.timing(pulseAnim, { toValue:1, duration:500, useNativeDriver:true }),
     ])).start();
   };
-
   const stopPulse = () => { pulseAnim.stopAnimation(); pulseAnim.setValue(1); };
+
+  // ── Pausa/Riprendi ────────────────────────────────────────────────
+  const stopAll = useCallback(() => {
+    cancelledRef.current = true;
+    clearTimeout(revealRef.current);
+    clearInterval(countdownRef.current);
+    clearTimeout(voiceTimerRef.current);
+    clearTimeout(listenTimeoutRef.current);
+    try { Voice.cancel(); } catch(e) {}
+    Speech.stop();
+    stopPulse();
+  }, []);
+
+  const togglePause = useCallback(() => {
+    const newPaused = !pausedRef.current;
+    pausedRef.current = newPaused;
+    setPaused(newPaused);
+    if (newPaused) {
+      // Metti in pausa
+      stopAll();
+      setVoicePhase('paused');
+    } else {
+      // Riprendi — riavvia la card corrente
+      cancelledRef.current = false;
+      const card = deck[idx];
+      if (card) startVoiceCard(card);
+    }
+  }, [deck, idx]); // eslint-disable-line
 
   // ── Logica READ ───────────────────────────────────────────────────
   const startReadCard = useCallback(() => {
@@ -183,7 +207,32 @@ export default function App() {
     if (idx>0) animateOut(()=>setIdx(prev=>prev-1));
   }, [idx]); // eslint-disable-line
 
-  // ── Logica VOICE con STT ──────────────────────────────────────────
+  // ── Gestisci risposta ─────────────────────────────────────────────
+  const handleAnswer = useCallback((heard, card) => {
+    if (cancelledRef.current || pausedRef.current) return;
+    stopPulse();
+    const ok = heard ? checkAnswer(heard, card.en) : false;
+    setVoiceFeedback(ok?'correct':'wrong');
+    setVoicePhase(ok?'result-ok':'result-fail');
+    setShown(true);
+    Speech.speak(card.en, {
+      language:'en-US', rate:0.85,
+      onDone:()=>{
+        if (cancelledRef.current || pausedRef.current) return;
+        voiceTimerRef.current = setTimeout(()=>{
+          if (cancelledRef.current || pausedRef.current) return;
+          setVoiceFeedback(null); setVoicePhase('idle');
+          goNext();
+        }, 2000);
+      },
+      onError:()=>{
+        if (cancelledRef.current || pausedRef.current) return;
+        voiceTimerRef.current = setTimeout(()=>goNext(), 2000);
+      }
+    });
+  }, [goNext]);
+
+  // ── Logica VOICE ──────────────────────────────────────────────────
   const startVoiceCard = useCallback((card) => {
     cancelledRef.current = false;
     clearTimeout(voiceTimerRef.current);
@@ -193,74 +242,61 @@ export default function App() {
     setShown(false); setVoicePhase('idle'); setVoiceFeedback(null); setHeardText('');
     stopPulse();
 
-    // Step 1: pronuncia IT
-    voiceTimerRef.current = setTimeout(async () => {
-      if (cancelledRef.current) return;
+    voiceTimerRef.current = setTimeout(async ()=>{
+      if (cancelledRef.current || pausedRef.current) return;
       setVoicePhase('speaking-it');
       await Speech.speak(card.it.replace(/[/()]/g,' '), {
         language:'it-IT', rate:0.85,
-        onDone: () => {
-          if (cancelledRef.current) return;
-          // Step 2: ascolta
-          setVoicePhase('listening');
-          startPulse();
-          try {
-            Voice.start('en-US');
-          } catch(e) {}
-          // Timeout ascolto 6 secondi
-          listenTimeoutRef.current = setTimeout(()=>{
-            if (cancelledRef.current) return;
-            try { Voice.stop(); } catch(e) {}
-            stopPulse();
-            handleAnswer('', card);
-          }, 6000);
+        onDone:()=>{
+          if (cancelledRef.current || pausedRef.current) return;
+          if (useMic && micPermission) {
+            // Con microfono
+            setVoicePhase('listening');
+            startPulse();
+            try { Voice.start('en-US'); } catch(e) {}
+            listenTimeoutRef.current = setTimeout(()=>{
+              if (cancelledRef.current || pausedRef.current) return;
+              try { Voice.stop(); } catch(e) {}
+              stopPulse();
+              handleAnswer('', card);
+            }, 6000);
+          } else {
+            // Senza microfono — pausa 2.5s poi risposta
+            setVoicePhase('waiting');
+            voiceTimerRef.current = setTimeout(()=>{
+              if (cancelledRef.current || pausedRef.current) return;
+              setShown(true);
+              setVoicePhase('speaking-en');
+              Speech.speak(card.en, {
+                language:'en-US', rate:0.85,
+                onDone:()=>{
+                  if (cancelledRef.current || pausedRef.current) return;
+                  voiceTimerRef.current = setTimeout(()=>{
+                    if (cancelledRef.current || pausedRef.current) return;
+                    setVoicePhase('idle');
+                    goNext();
+                  }, 2000);
+                },
+                onError:()=>{ voiceTimerRef.current = setTimeout(()=>goNext(), 2000); }
+              });
+            }, 2500);
+          }
         },
-        onError: () => {
-          if (cancelledRef.current) return;
-          setVoicePhase('listening');
-          startPulse();
-          try { Voice.start('en-US'); } catch(e) {}
-          listenTimeoutRef.current = setTimeout(()=>{
-            if (cancelledRef.current) return;
-            try { Voice.stop(); } catch(e) {}
-            stopPulse();
-            handleAnswer('', card);
-          }, 6000);
+        onError:()=>{
+          if (cancelledRef.current || pausedRef.current) return;
+          voiceTimerRef.current = setTimeout(()=>{
+            if (cancelledRef.current || pausedRef.current) return;
+            setShown(true); setVoicePhase('idle');
+            voiceTimerRef.current = setTimeout(()=>goNext(), 2000);
+          }, 2500);
         }
       });
     }, 400);
-  }, []); // eslint-disable-line
+  }, [useMic, micPermission, handleAnswer, goNext]); // eslint-disable-line
 
-  // Gestisci risposta sentita
-  const handleAnswer = useCallback((heard, card) => {
-    if (cancelledRef.current) return;
-    stopPulse();
-    const ok = heard ? checkAnswer(heard, card.en) : false;
-    setVoiceFeedback(ok ? 'correct' : 'wrong');
-    setVoicePhase(ok ? 'result-ok' : 'result-fail');
-    setShown(true);
-    // Pronuncia risposta corretta
-    Speech.speak(card.en, {
-      language:'en-US', rate:0.85,
-      onDone: () => {
-        if (cancelledRef.current) return;
-        voiceTimerRef.current = setTimeout(()=>{
-          if (cancelledRef.current) return;
-          setVoiceFeedback(null);
-          setVoicePhase('idle');
-          goNext();
-        }, 2000);
-      },
-      onError: () => {
-        if (cancelledRef.current) return;
-        voiceTimerRef.current = setTimeout(()=>{ goNext(); }, 2000);
-      }
-    });
-  }, [goNext]);
-
-  // Quando heardText cambia (STT ha restituito risultato)
+  // Quando STT restituisce risultato
   useEffect(()=>{
-    if (voicePhase !== 'listening') return;
+    if (voicePhase!=='listening') return;
     if (!heardText) return;
     clearTimeout(listenTimeoutRef.current);
     stopPulse();
@@ -269,103 +305,113 @@ export default function App() {
   }, [heardText]); // eslint-disable-line
 
   // ── useEffect principale ──────────────────────────────────────────
-  useEffect(() => {
+  useEffect(()=>{
+    if (pausedRef.current) return; // non riavviare se in pausa
     cancelledRef.current = false;
-    clearTimeout(revealRef.current);
-    clearInterval(countdownRef.current);
-    clearTimeout(voiceTimerRef.current);
-    clearTimeout(listenTimeoutRef.current);
-    try { Voice.cancel(); } catch(e) {}
-    Speech.stop();
-    stopPulse();
+    stopAll();
     const card = deck[idx];
     if (!card) return;
     if (mode==='read') startReadCard();
     else startVoiceCard(card);
-    return () => {
-      cancelledRef.current = true;
-      clearTimeout(revealRef.current);
-      clearInterval(countdownRef.current);
-      clearTimeout(voiceTimerRef.current);
-      clearTimeout(listenTimeoutRef.current);
-      try { Voice.cancel(); } catch(e) {}
-      Speech.stop();
-      stopPulse();
-    };
+    return ()=>{ stopAll(); };
   }, [idx, deck, mode]); // eslint-disable-line
 
+  // ── Switch mode ───────────────────────────────────────────────────
   const switchMode = (m) => {
-    if (m==='voice' && !micPermission) {
-      Alert.alert('Microfono', 'Permesso microfono non concesso. Vai nelle impostazioni per abilitarlo.');
-      return;
+    if (m==='voice' && useMic && !micPermission) {
+      Alert.alert('Microfono', 'Permesso microfono non concesso. Puoi usare Voice senza microfono disattivando il mic.');
     }
-    cancelledRef.current = true;
-    Speech.stop();
-    try { Voice.cancel(); } catch(e) {}
-    clearTimeout(voiceTimerRef.current);
-    clearTimeout(revealRef.current);
-    clearInterval(countdownRef.current);
-    stopPulse();
+    stopAll();
+    pausedRef.current = false;
+    setPaused(false);
+    cancelledRef.current = false;
     setMode(m);
     setIdx(i=>i);
   };
 
-  const card = deck[idx] || CARDS[0];
-  const tc = TAG_COLORS[card.tag] || TAG_COLORS.a2;
+  const card = deck[idx]||CARDS[0];
+  const tc = TAG_COLORS[card.tag]||TAG_COLORS.a2;
   const isNR = notRemembered.includes(CARDS.indexOf(card));
   const pct = ((idx+1)/deck.length)*100;
   const filters = ['all','a2','b1','b2','phrasal-b1','phrasal-b2'];
   const filterLabels = { all:'Tutte', a2:'A2', b1:'B1', b2:'B2', 'phrasal-b1':'Phrasal B1', 'phrasal-b2':'Phrasal B2' };
 
-  // Badge voice
   const voiceBadgeInfo = {
     'speaking-it': { text:'🔊 Ascolta...', color:'#e879f9' },
     'listening':   { text:'🎤 Parla...', color:'#4ade80' },
+    'waiting':     { text:'💭 Pensa...', color:'#f7c94f' },
     'result-ok':   { text:'✓ Corretto!', color:'#4ade80' },
     'result-fail': { text:'✗ Riprova', color:'#f87171' },
     'speaking-en': { text:'🔊 Risposta', color:'#4ade80' },
-  }[voicePhase] || null;
+    'paused':      { text:'⏸ In pausa', color:'#6b7a9e' },
+  }[voicePhase]||null;
 
   return (
     <View style={s.container}>
       <StatusBar barStyle="light-content" backgroundColor="#080b14" />
+
+      {/* HEADER */}
       <View style={s.header}>
-        <Text style={s.title}>Oxford 3000 <Text style={s.accent}>A2→B2</Text></Text>
+        <View style={s.titleRow}>
+          <Text style={s.title}>Oxford 3000 <Text style={s.accent}>A2→B2</Text></Text>
+          <Text style={s.version}>v{APP_VERSION}</Text>
+        </View>
         <Text style={s.subtitle}>{CARDS.length} parole & phrasal verbs</Text>
         <View style={s.modeRow}>
           {['read','voice'].map(m=>(
             <TouchableOpacity key={m} onPress={()=>switchMode(m)}
-              style={[s.modeBtn, mode===m && { backgroundColor: m==='voice'?'#9333ea':'#2563eb' }]}>
+              style={[s.modeBtn, mode===m && { backgroundColor:m==='voice'?'#9333ea':'#2563eb' }]}>
               <Text style={[s.modeTxt, mode===m && { color:'#fff' }]}>
-                {m==='read' ? '📖 Read' : '🎤 Voice'}
+                {m==='read'?'📖 Read':'🎤 Voice'}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
+
+        {/* Opzioni Voice */}
+        {mode==='voice' && (
+          <View style={s.voiceOpts}>
+            <TouchableOpacity onPress={()=>setUseMic(v=>!v)}
+              style={[s.optBtn, useMic && { borderColor:'#4ade80', backgroundColor:'rgba(74,222,128,0.1)' }]}>
+              <Text style={[s.optTxt, useMic && { color:'#4ade80' }]}>
+                {useMic?'🎤 Mic ON':'🔇 Mic OFF'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={togglePause}
+              style={[s.optBtn, paused && { borderColor:'#f7c94f', backgroundColor:'rgba(247,201,79,0.1)' }]}>
+              <Text style={[s.optTxt, paused && { color:'#f7c94f' }]}>
+                {paused?'▶ Riprendi':'⏸ Pausa'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
 
+      {/* FILTRI */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.filtersRow} contentContainerStyle={{ gap:6, alignItems:'center', paddingRight:16 }}>
         {filters.map(f=>(
-          <TouchableOpacity key={f} onPress={()=>applyFilter(f)} style={[s.fBtn, filter===f && s.fBtnOn]}>
-            <Text style={[s.fTxt, filter===f && { color:'#4f8ef7' }]}>
+          <TouchableOpacity key={f} onPress={()=>applyFilter(f)} style={[s.fBtn, filter===f&&s.fBtnOn]}>
+            <Text style={[s.fTxt, filter===f&&{ color:'#4f8ef7' }]}>
               {filterLabels[f]} ({f==='all'?CARDS.length:CARDS.filter(c=>c.tag===f).length})
             </Text>
           </TouchableOpacity>
         ))}
         <TouchableOpacity onPress={()=>{ setIsShuffled(v=>{ const n=!v; setDeck(buildDeck(filter,n,notRemembered)); setIdx(0); return n; }); }}
-          style={[s.fBtn, isShuffled && { borderColor:'#f7c94f' }]}>
-          <Text style={[s.fTxt, isShuffled && { color:'#f7c94f' }]}>🔀 Shuffle</Text>
+          style={[s.fBtn, isShuffled&&{ borderColor:'#f7c94f' }]}>
+          <Text style={[s.fTxt, isShuffled&&{ color:'#f7c94f' }]}>🔀 Shuffle</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={()=>setShowNR(p=>!p)} style={[s.fBtn, showNR && { borderColor:'rgba(239,68,68,0.5)' }]}>
-          <Text style={[s.fTxt, showNR && { color:'#f87171' }]}>❌ Non ricordo ({notRemembered.length})</Text>
+        <TouchableOpacity onPress={()=>setShowNR(p=>!p)} style={[s.fBtn, showNR&&{ borderColor:'rgba(239,68,68,0.5)' }]}>
+          <Text style={[s.fTxt, showNR&&{ color:'#f87171' }]}>❌ Non ricordo ({notRemembered.length})</Text>
         </TouchableOpacity>
       </ScrollView>
 
+      {/* PROGRESS */}
       <View style={s.progRow}>
-        <View style={s.progBg}><View style={[s.progFill, { width:`${pct}%` }]} /></View>
+        <View style={s.progBg}><View style={[s.progFill, { width:`${pct}%` }]}/></View>
         <Text style={s.progTxt}>{idx+1} / {deck.length}</Text>
       </View>
 
+      {/* CARD */}
       <Animated.View style={[s.card, { opacity:fadeAnim, transform:[{ scale:scaleAnim }] }]}>
         <LinearGradient colors={['#0f1e3d','#0b1428']} style={s.cardTop}>
           {voiceBadgeInfo && (
@@ -376,10 +422,9 @@ export default function App() {
           {mode==='read' && !shown && (
             <View style={s.cdBadge}><Text style={s.cdTxt}>{countdown>0?countdown:''}</Text></View>
           )}
-          {/* Animazione microfono pulsante */}
           {voicePhase==='listening' && (
             <Animated.View style={[s.micRing, { transform:[{ scale:pulseAnim }] }]}>
-              <Text style={{ fontSize:28 }}>🎤</Text>
+              <Text style={{ fontSize:24 }}>🎤</Text>
             </Animated.View>
           )}
           <Text style={s.emoji}>{card.emoji}</Text>
@@ -395,11 +440,10 @@ export default function App() {
         <LinearGradient colors={['#111827','#080b14']} style={s.cardBot}>
           {shown ? (
             <View style={s.ansWrap}>
-              {/* Feedback risposta */}
               {voiceFeedback && (
-                <View style={[s.feedbackBadge, { backgroundColor: voiceFeedback==='correct'?'rgba(74,222,128,0.15)':'rgba(239,68,68,0.15)' }]}>
-                  <Text style={[s.feedbackTxt, { color: voiceFeedback==='correct'?'#4ade80':'#f87171' }]}>
-                    {voiceFeedback==='correct' ? '✓ Corretto!' : heardText ? `✗ Hai detto: "${heardText}"` : '✗ Non sentito'}
+                <View style={[s.fbBadge, { backgroundColor:voiceFeedback==='correct'?'rgba(74,222,128,0.15)':'rgba(239,68,68,0.15)' }]}>
+                  <Text style={[s.fbTxt, { color:voiceFeedback==='correct'?'#4ade80':'#f87171' }]}>
+                    {voiceFeedback==='correct'?'✓ Corretto!':heardText?`✗ Hai detto: "${heardText}"` :'✗ Non sentito'}
                   </Text>
                 </View>
               )}
@@ -409,18 +453,19 @@ export default function App() {
               <TouchableOpacity onPress={()=>{
                 const gi=CARDS.indexOf(card);
                 setNotRemembered(prev=>prev.includes(gi)?prev.filter(x=>x!==gi):[...prev,gi]);
-              }} style={[s.nrBtn, isNR && s.nrBtnOn]}>
+              }} style={[s.nrBtn, isNR&&s.nrBtnOn]}>
                 <Text style={s.nrTxt}>{isNR?'✓ Salvata':'❌ Non ricordo'}</Text>
               </TouchableOpacity>
             </View>
           ) : (
             <Text style={s.dots}>
-              {mode==='voice' ? (voicePhase==='speaking-it'?'🔊':voicePhase==='listening'?'👂':'💭') : '···'}
+              {mode==='voice'?(voicePhase==='speaking-it'?'🔊':voicePhase==='listening'?'👂':voicePhase==='paused'?'⏸':'💭'):'···'}
             </Text>
           )}
         </LinearGradient>
       </Animated.View>
 
+      {/* CONTROLLI */}
       <View style={s.ctrlRow}>
         {mode==='read' ? (
           <>
@@ -429,16 +474,17 @@ export default function App() {
           </>
         ) : (
           <>
-            <TouchableOpacity onPress={()=>{ cancelledRef.current=true; Speech.stop(); try{Voice.cancel();}catch(e){} stopPulse(); animateOut(()=>setIdx(p=>Math.max(0,p-1))); }} style={s.navBtn}>
+            <TouchableOpacity onPress={()=>{ stopAll(); pausedRef.current=false; setPaused(false); cancelledRef.current=false; animateOut(()=>setIdx(p=>Math.max(0,p-1))); }} style={s.navBtn}>
               <Text style={s.navTxt}>←</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={()=>{ cancelledRef.current=true; Speech.stop(); try{Voice.cancel();}catch(e){} stopPulse(); animateOut(()=>setIdx(p=>Math.min(deck.length-1,p+1))); }} style={s.navBtn}>
+            <TouchableOpacity onPress={()=>{ stopAll(); pausedRef.current=false; setPaused(false); cancelledRef.current=false; animateOut(()=>setIdx(p=>Math.min(deck.length-1,p+1))); }} style={s.navBtn}>
               <Text style={s.navTxt}>→ Salta</Text>
             </TouchableOpacity>
           </>
         )}
       </View>
 
+      {/* NON RICORDO */}
       {showNR && (
         <View style={s.nrPanel}>
           <View style={s.nrHead}>
@@ -471,28 +517,33 @@ export default function App() {
 
 const s = StyleSheet.create({
   container: { flex:1, backgroundColor:'#080b14', paddingTop:Platform.OS==='android'?40:50, paddingHorizontal:16 },
-  header: { alignItems:'center', marginBottom:12 },
+  header: { alignItems:'center', marginBottom:10 },
+  titleRow: { flexDirection:'row', alignItems:'center', gap:8 },
   title: { fontSize:22, fontWeight:'700', color:'#eef2ff' },
   accent: { color:'#4f8ef7' },
+  version: { fontSize:11, color:'#6b7a9e', fontFamily: Platform.OS==='ios'?'Courier':'monospace' },
   subtitle: { fontSize:11, color:'#6b7a9e', marginTop:2, textTransform:'uppercase', letterSpacing:1 },
-  modeRow: { flexDirection:'row', marginTop:12, borderRadius:20, overflow:'hidden', borderWidth:1, borderColor:'rgba(255,255,255,0.1)' },
+  modeRow: { flexDirection:'row', marginTop:10, borderRadius:20, overflow:'hidden', borderWidth:1, borderColor:'rgba(255,255,255,0.1)' },
   modeBtn: { paddingVertical:7, paddingHorizontal:20, backgroundColor:'#0f1624' },
   modeTxt: { fontSize:12, color:'#6b7a9e', fontWeight:'600', textTransform:'uppercase', letterSpacing:1 },
+  voiceOpts: { flexDirection:'row', gap:8, marginTop:8 },
+  optBtn: { paddingVertical:5, paddingHorizontal:14, borderRadius:20, backgroundColor:'#0f1624', borderWidth:1, borderColor:'rgba(255,255,255,0.1)' },
+  optTxt: { fontSize:12, color:'#6b7a9e', fontWeight:'600' },
   filtersRow: { maxHeight:44, marginBottom:8 },
   fBtn: { paddingVertical:5, paddingHorizontal:12, borderRadius:20, backgroundColor:'#0f1624', borderWidth:1, borderColor:'rgba(255,255,255,0.07)' },
   fBtnOn: { borderColor:'#4f8ef7', backgroundColor:'rgba(79,142,247,0.15)' },
   fTxt: { fontSize:11, color:'#6b7a9e', textTransform:'uppercase', letterSpacing:0.8 },
-  progRow: { flexDirection:'row', alignItems:'center', gap:8, marginBottom:12 },
+  progRow: { flexDirection:'row', alignItems:'center', gap:8, marginBottom:10 },
   progBg: { flex:1, height:3, backgroundColor:'rgba(255,255,255,0.07)', borderRadius:10, overflow:'hidden' },
   progFill: { height:'100%', backgroundColor:'#4f8ef7', borderRadius:10 },
   progTxt: { fontSize:12, color:'#6b7a9e' },
-  card: { flex:1, borderRadius:24, overflow:'hidden', borderWidth:1, borderColor:'rgba(255,255,255,0.07)', marginBottom:12 },
+  card: { flex:1, borderRadius:24, overflow:'hidden', borderWidth:1, borderColor:'rgba(255,255,255,0.07)', marginBottom:10 },
   cardTop: { flex:1.4, padding:28, alignItems:'center', justifyContent:'center', gap:12, borderBottomWidth:1, borderBottomColor:'rgba(255,255,255,0.07)' },
   vBadge: { position:'absolute', top:14, left:14, borderRadius:20, paddingVertical:3, paddingHorizontal:12, borderWidth:1 },
   vBadgeTxt: { fontSize:11, fontWeight:'600', textTransform:'uppercase', letterSpacing:1 },
   cdBadge: { position:'absolute', top:14, right:14, width:32, height:32, borderRadius:16, backgroundColor:'rgba(79,142,247,0.2)', borderWidth:1, borderColor:'rgba(79,142,247,0.4)', alignItems:'center', justifyContent:'center' },
   cdTxt: { fontSize:13, fontWeight:'700', color:'#4f8ef7' },
-  micRing: { position:'absolute', top:10, right:10, width:50, height:50, borderRadius:25, backgroundColor:'rgba(74,222,128,0.15)', borderWidth:2, borderColor:'rgba(74,222,128,0.5)', alignItems:'center', justifyContent:'center' },
+  micRing: { position:'absolute', top:10, right:10, width:48, height:48, borderRadius:24, backgroundColor:'rgba(74,222,128,0.15)', borderWidth:2, borderColor:'rgba(74,222,128,0.5)', alignItems:'center', justifyContent:'center' },
   emoji: { fontSize:52 },
   wordRow: { flexDirection:'row', alignItems:'baseline', gap:8 },
   pos: { fontSize:14, color:'rgba(238,242,255,0.4)', fontStyle:'italic' },
@@ -501,8 +552,8 @@ const s = StyleSheet.create({
   tagTxt: { fontSize:11, fontWeight:'600', textTransform:'uppercase', letterSpacing:1.2 },
   cardBot: { flex:1, padding:24, alignItems:'center', justifyContent:'center' },
   ansWrap: { alignItems:'center', gap:10, width:'100%' },
-  feedbackBadge: { paddingVertical:6, paddingHorizontal:16, borderRadius:20, marginBottom:4 },
-  feedbackTxt: { fontSize:13, fontWeight:'700' },
+  fbBadge: { paddingVertical:6, paddingHorizontal:16, borderRadius:20, marginBottom:4 },
+  fbTxt: { fontSize:13, fontWeight:'700' },
   wordEN: { fontSize:28, fontWeight:'700', color:'#f7c94f' },
   syn: { fontSize:12, color:'rgba(238,242,255,0.4)', fontStyle:'italic' },
   exWrap: { borderLeftWidth:2, borderLeftColor:'rgba(247,201,79,0.3)', paddingLeft:12, marginTop:4 },
@@ -511,7 +562,7 @@ const s = StyleSheet.create({
   nrBtn: { marginTop:8, paddingVertical:6, paddingHorizontal:20, borderRadius:20, backgroundColor:'rgba(239,68,68,0.08)', borderWidth:1, borderColor:'rgba(239,68,68,0.25)' },
   nrBtnOn: { backgroundColor:'rgba(239,68,68,0.2)', borderColor:'rgba(239,68,68,0.6)' },
   nrTxt: { fontSize:12, color:'#f87171', fontWeight:'600' },
-  ctrlRow: { flexDirection:'row', justifyContent:'center', alignItems:'center', gap:16, marginBottom:12 },
+  ctrlRow: { flexDirection:'row', justifyContent:'center', alignItems:'center', gap:16, marginBottom:10 },
   navBtn: { width:52, height:52, borderRadius:26, backgroundColor:'#0f1624', borderWidth:1, borderColor:'rgba(255,255,255,0.07)', alignItems:'center', justifyContent:'center' },
   navMain: { width:64, height:64, borderRadius:32, backgroundColor:'#2563eb', alignItems:'center', justifyContent:'center' },
   dis: { opacity:0.3 },
