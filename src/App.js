@@ -9,7 +9,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Voice from '@react-native-voice/voice';
 import CARDS from './cards';
 
-const APP_VERSION = '1.3';
+const APP_VERSION = '1.4';
 
 const TAG_COLORS = {
   a2:           { text:'#4ff7a0', bg:'rgba(79,247,160,0.15)',  border:'rgba(79,247,160,0.3)' },
@@ -101,13 +101,21 @@ export default function App() {
     const load = async () => {
       try {
         const saved = await AsyncStorage.getItem('nr_list');
-        if (saved) setNotRemembered(JSON.parse(saved));
+        const parsedNR = saved ? JSON.parse(saved) : [];
+        if (saved) setNotRemembered(parsedNR);
+
         const pos = await AsyncStorage.getItem('position');
         if (pos) {
-          const { filterSaved, idxSaved } = JSON.parse(pos);
+          const { filterSaved, idxSaved, shuffledSaved } = JSON.parse(pos);
           Alert.alert('Bentornato!', `Riprendi dalla carta ${idxSaved+1}?`, [
             { text:'Ricomincia', onPress:()=>{} },
-            { text:'Riprendi', onPress:()=>{ setFilter(filterSaved); setIdx(idxSaved); } }
+            { text:'Riprendi', onPress:()=>{
+              const restoredDeck = buildDeck(filterSaved, shuffledSaved, parsedNR);
+              setFilter(filterSaved);
+              setIsShuffled(shuffledSaved || false);
+              setDeck(restoredDeck);
+              setIdx(Math.min(idxSaved, restoredDeck.length - 1));
+            }}
           ]);
         }
       } catch(e) {}
@@ -120,8 +128,8 @@ export default function App() {
   }, [notRemembered]);
 
   useEffect(() => {
-    AsyncStorage.setItem('position', JSON.stringify({ filterSaved:filter, idxSaved:idx })).catch(()=>{});
-  }, [idx, filter]);
+    AsyncStorage.setItem('position', JSON.stringify({ filterSaved:filter, idxSaved:idx, shuffledSaved:isShuffled })).catch(()=>{});
+  }, [idx, filter, isShuffled]);
 
   // ── Build deck ────────────────────────────────────────────────────
   const buildDeck = useCallback((f, sh, nrList=[]) => {
@@ -447,7 +455,14 @@ export default function App() {
                   </Text>
                 </View>
               )}
-              <Text style={s.wordEN}>{card.en}</Text>
+              <View style={s.wordENRow}>
+                <Text style={s.wordEN}>{card.en}</Text>
+                <TouchableOpacity
+                  onPress={()=>{ Speech.stop(); Speech.speak(card.en, { language:'en-US', rate:0.85 }); }}
+                  style={s.speakBtn}>
+                  <Text style={s.speakBtnTxt}>🔊</Text>
+                </TouchableOpacity>
+              </View>
               {card.syn && <Text style={s.syn}>sinonimo: <Text style={{ color:'rgba(238,242,255,0.65)' }}>{card.syn}</Text></Text>}
               {card.ex ? <View style={s.exWrap}><Text style={s.exTxt}>{card.ex}</Text></View> : null}
               <TouchableOpacity onPress={()=>{
@@ -554,7 +569,10 @@ const s = StyleSheet.create({
   ansWrap: { alignItems:'center', gap:10, width:'100%' },
   fbBadge: { paddingVertical:6, paddingHorizontal:16, borderRadius:20, marginBottom:4 },
   fbTxt: { fontSize:13, fontWeight:'700' },
+  wordENRow: { flexDirection:'row', alignItems:'center', gap:10 },
   wordEN: { fontSize:28, fontWeight:'700', color:'#f7c94f' },
+  speakBtn: { width:36, height:36, borderRadius:18, backgroundColor:'rgba(247,201,79,0.15)', borderWidth:1, borderColor:'rgba(247,201,79,0.35)', alignItems:'center', justifyContent:'center' },
+  speakBtnTxt: { fontSize:16 },
   syn: { fontSize:12, color:'rgba(238,242,255,0.4)', fontStyle:'italic' },
   exWrap: { borderLeftWidth:2, borderLeftColor:'rgba(247,201,79,0.3)', paddingLeft:12, marginTop:4 },
   exTxt: { fontSize:13, color:'rgba(238,242,255,0.55)', fontStyle:'italic', lineHeight:20 },
