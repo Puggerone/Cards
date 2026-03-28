@@ -9,7 +9,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Voice from '@react-native-voice/voice';
 import CARDS from './cards';
 
-const APP_VERSION = '1.4';
+const APP_VERSION = '1.5';
 
 const TAG_COLORS = {
   a2:           { text:'#4ff7a0', bg:'rgba(79,247,160,0.15)',  border:'rgba(79,247,160,0.3)' },
@@ -89,9 +89,19 @@ export default function App() {
       clearTimeout(listenTimeoutRef.current);
       Voice.stop();
     };
-    Voice.onSpeechError = () => {
+    Voice.onSpeechError = (e) => {
       if (cancelledRef.current || pausedRef.current) return;
-      setHeardText('');
+      // Se errore durante ascolto, riprova una volta automaticamente
+      if (voicePhase === 'listening') {
+        setTimeout(()=>{
+          if (cancelledRef.current || pausedRef.current) return;
+          try { Voice.start('en-US'); } catch(err) {
+            setHeardText('');
+          }
+        }, 600);
+      } else {
+        setHeardText('');
+      }
     };
     return () => { Voice.destroy().then(Voice.removeAllListeners); };
   }, []);
@@ -258,10 +268,21 @@ export default function App() {
         onDone:()=>{
           if (cancelledRef.current || pausedRef.current) return;
           if (useMic && micPermission) {
-            // Con microfono
+            // Attendi 500ms che il sistema audio rilasci completamente il TTS
             setVoicePhase('listening');
             startPulse();
-            try { Voice.start('en-US'); } catch(e) {}
+            const startSTT = (attempt=0) => {
+              setTimeout(()=>{
+                if (cancelledRef.current || pausedRef.current) return;
+                try {
+                  Voice.start('en-US');
+                } catch(e) {
+                  // Retry una volta se fallisce al primo tentativo
+                  if (attempt===0) startSTT(1);
+                }
+              }, attempt===0 ? 500 : 800);
+            };
+            startSTT();
             listenTimeoutRef.current = setTimeout(()=>{
               if (cancelledRef.current || pausedRef.current) return;
               try { Voice.stop(); } catch(e) {}
@@ -438,7 +459,12 @@ export default function App() {
           <Text style={s.emoji}>{card.emoji}</Text>
           <View style={s.wordRow}>
             {card.pos && card.pos!=='phrasal' && <Text style={s.pos}>{card.pos}</Text>}
-            <Text style={s.wordIT}>{card.it}</Text>
+            <Text style={s.wordIT}>
+              {card.it.replace(/\s*\(.*?\)/g, '')}
+              {card.it.includes('(') && (
+                <Text style={s.wordITsub}>{' '}{card.it.match(/\(.*?\)/)?.[0]}</Text>
+              )}
+            </Text>
           </View>
           <View style={[s.tag, { backgroundColor:tc.bg, borderColor:tc.border }]}>
             <Text style={[s.tagTxt, { color:tc.text }]}>{TAG_LABELS[card.tag]||card.tag}</Text>
@@ -563,6 +589,7 @@ const s = StyleSheet.create({
   wordRow: { flexDirection:'row', alignItems:'baseline', gap:8 },
   pos: { fontSize:14, color:'rgba(238,242,255,0.4)', fontStyle:'italic' },
   wordIT: { fontSize:30, fontWeight:'700', color:'#eef2ff', textAlign:'center' },
+  wordITsub: { fontSize:16, fontWeight:'400', color:'rgba(238,242,255,0.45)', fontStyle:'italic' },
   tag: { borderRadius:20, paddingVertical:3, paddingHorizontal:12, borderWidth:1 },
   tagTxt: { fontSize:11, fontWeight:'600', textTransform:'uppercase', letterSpacing:1.2 },
   cardBot: { flex:1, padding:24, alignItems:'center', justifyContent:'center' },
