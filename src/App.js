@@ -106,7 +106,19 @@ export default function App() {
     return () => { Voice.destroy().then(Voice.removeAllListeners); };
   }, []);
 
+  // ── Build deck ────────────────────────────────────────────────────
+  const buildDeck = useCallback((f, sh, nrList=[]) => {
+    let d;
+    if (f==='all') d=CARDS;
+    else if (f==='review') d=nrList.map(i=>CARDS[i]).filter(Boolean);
+    else d=CARDS.filter(c=>c.tag===f);
+    if (sh) d=shuffle(d);
+    return d.length ? d : CARDS;
+  }, []);
+
   // ── Persistenza ───────────────────────────────────────────────────
+  const isReadyRef = useRef(false); // evita salvataggio prematuro idx=0 all'avvio
+
   useEffect(() => {
     const load = async () => {
       try {
@@ -117,18 +129,32 @@ export default function App() {
         const pos = await AsyncStorage.getItem('position');
         if (pos) {
           const { filterSaved, idxSaved, shuffledSaved } = JSON.parse(pos);
-          Alert.alert('Bentornato!', `Riprendi dalla carta ${idxSaved+1}?`, [
-            { text:'Ricomincia', onPress:()=>{} },
-            { text:'Riprendi', onPress:()=>{
-              const restoredDeck = buildDeck(filterSaved, shuffledSaved, parsedNR);
-              setFilter(filterSaved);
-              setIsShuffled(shuffledSaved || false);
-              setDeck(restoredDeck);
-              setIdx(Math.min(idxSaved, restoredDeck.length - 1));
-            }}
-          ]);
+          if (idxSaved > 0 || filterSaved !== 'all' || shuffledSaved) {
+            Alert.alert(
+              'Bentornato!',
+              `Vuoi riprendere dalla carta ${idxSaved+1}?`,
+              [
+                { text:'Ricomincia', style:'destructive', onPress: async ()=>{
+                    await AsyncStorage.removeItem('position');
+                    isReadyRef.current = true;
+                  }
+                },
+                { text:'Riprendi', onPress:()=>{
+                    const restoredDeck = buildDeck(filterSaved, shuffledSaved || false, parsedNR);
+                    setFilter(filterSaved);
+                    setIsShuffled(shuffledSaved || false);
+                    setDeck(restoredDeck);
+                    setIdx(Math.min(idxSaved, restoredDeck.length - 1));
+                    isReadyRef.current = true;
+                  }
+                },
+              ]
+            );
+            return;
+          }
         }
       } catch(e) {}
+      isReadyRef.current = true;
     };
     load();
   }, []);
@@ -138,18 +164,9 @@ export default function App() {
   }, [notRemembered]);
 
   useEffect(() => {
+    if (!isReadyRef.current) return;
     AsyncStorage.setItem('position', JSON.stringify({ filterSaved:filter, idxSaved:idx, shuffledSaved:isShuffled })).catch(()=>{});
   }, [idx, filter, isShuffled]);
-
-  // ── Build deck ────────────────────────────────────────────────────
-  const buildDeck = useCallback((f, sh, nrList=[]) => {
-    let d;
-    if (f==='all') d=CARDS;
-    else if (f==='review') d=nrList.map(i=>CARDS[i]).filter(Boolean);
-    else d=CARDS.filter(c=>c.tag===f);
-    if (sh) d=shuffle(d);
-    return d.length ? d : CARDS;
-  }, []);
 
   const applyFilter = (f) => {
     setFilter(f); setDeck(buildDeck(f,isShuffled,notRemembered)); setIdx(0);
