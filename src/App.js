@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import Voice from '@react-native-voice/voice';
 import CARDS from './cards';
+import SHADOW from './shadowing';
 
 const APP_VERSION = '1.5';
 
@@ -38,10 +39,14 @@ function checkAnswer(heard, expected) {
 }
 
 export default function App() {
-  const [mode, setMode] = useState('read');       // 'read' | 'voice'
-  const [useMic, setUseMic] = useState(true);     // microfono on/off in voice mode
-  const [paused, setPaused] = useState(false);    // pausa in voice mode
+  const [mode, setMode] = useState('read');       // 'read' | 'voice' | 'shadow'
+  const [useMic, setUseMic] = useState(true);
+  const [paused, setPaused] = useState(false);
   const [filter, setFilter] = useState('all');
+  const [shadowFilter, setShadowFilter] = useState('all'); // 'all'|'phrasal-a2'|'phrasal-b1'|'phrasal-b2'
+  const [shadowDeck, setShadowDeck] = useState(SHADOW);
+  const [shadowIdx, setShadowIdx] = useState(0);
+  const [shadowPhase, setShadowPhase] = useState('idle'); // 'idle'|'speaking'|'waiting'|'repeating'|'paused'
   const [isShuffled, setIsShuffled] = useState(false);
   const [deck, setDeck] = useState(CARDS);
   const [idx, setIdx] = useState(0);
@@ -63,6 +68,7 @@ export default function App() {
   const listenTimeoutRef = useRef(null);
   const cancelledRef = useRef(false);
   const pausedRef = useRef(false);
+  const shadowTimerRef = useRef(null);
 
   // ── Permesso microfono ────────────────────────────────────────────
   useEffect(() => {
@@ -201,6 +207,7 @@ export default function App() {
     clearInterval(countdownRef.current);
     clearTimeout(voiceTimerRef.current);
     clearTimeout(listenTimeoutRef.current);
+    clearTimeout(shadowTimerRef.current);
     try { Voice.cancel(); } catch(e) {}
     Speech.stop();
     stopPulse();
@@ -233,7 +240,44 @@ export default function App() {
     revealRef.current = setTimeout(()=>setShown(true), 3000);
   }, []);
 
-  // ── Avanza card ───────────────────────────────────────────────────
+  // ── Logica SHADOW ─────────────────────────────────────────────────
+  const startShadowCard = useCallback((sentence) => {
+    cancelledRef.current = false;
+    clearTimeout(shadowTimerRef.current);
+    setShadowPhase('speaking');
+    Speech.stop();
+    // 1. Legge la frase in inglese
+    Speech.speak(sentence.en, {
+      language:'en-US', rate:0.82,
+      onDone:()=>{
+        if (cancelledRef.current || pausedRef.current) return;
+        // 2. Pausa 5 secondi — l'utente ripete
+        setShadowPhase('waiting');
+        shadowTimerRef.current = setTimeout(()=>{
+          if (cancelledRef.current || pausedRef.current) return;
+          // 3. Ripete la frase
+          setShadowPhase('repeating');
+          Speech.speak(sentence.en, {
+            language:'en-US', rate:0.82,
+            onDone:()=>{
+              if (cancelledRef.current || pausedRef.current) return;
+              // 4. Pausa 2 secondi poi prossima carta
+              shadowTimerRef.current = setTimeout(()=>{
+                if (cancelledRef.current || pausedRef.current) return;
+                setShadowPhase('idle');
+                setShadowIdx(p => p < shadowDeck.length-1 ? p+1 : p);
+              }, 2000);
+            },
+            onError:()=>{ setShadowIdx(p => p < shadowDeck.length-1 ? p+1 : p); }
+          });
+        }, 5000);
+      },
+      onError:()=>{
+        if (cancelledRef.current || pausedRef.current) return;
+        setShadowIdx(p => p < shadowDeck.length-1 ? p+1 : p);
+      }
+    });
+  }, [shadowDeck]);
   const goNext = useCallback(() => {
     animateOut(()=>setIdx(prev=>prev+1<deck.length?prev+1:prev));
   }, [deck.length]); // eslint-disable-line
@@ -352,6 +396,15 @@ export default function App() {
 
   // ── useEffect principale ──────────────────────────────────────────
   useEffect(()=>{
+    if (mode !== 'shadow') return;
+    if (pausedRef.current) return;
+    cancelledRef.current = false;
+    stopAll();
+    const sentence = shadowDeck[shadowIdx];
+    if (sentence) startShadowCard(sentence);
+    return ()=>{ stopAll(); };
+  }, [shadowIdx, shadowDeck]); // eslint-disable-line
+  useEffect(()=>{
     if (pausedRef.current) return; // non riavviare se in pausa
     cancelledRef.current = false;
     stopAll();
@@ -371,8 +424,14 @@ export default function App() {
     pausedRef.current = false;
     setPaused(false);
     cancelledRef.current = false;
+    setShadowPhase('idle');
     setMode(m);
-    setIdx(i=>i);
+    if (m==='shadow') {
+      const sentence = shadowDeck[shadowIdx];
+      if (sentence) setTimeout(()=>startShadowCard(sentence), 300);
+    } else {
+      setIdx(i=>i);
+    }
   };
 
   const card = deck[idx]||CARDS[0];
@@ -404,11 +463,11 @@ export default function App() {
         </View>
         <Text style={s.subtitle}>{CARDS.length} parole & phrasal verbs</Text>
         <View style={s.modeRow}>
-          {['read','voice'].map(m=>(
+          {['read','voice','shadow'].map(m=>(
             <TouchableOpacity key={m} onPress={()=>switchMode(m)}
-              style={[s.modeBtn, mode===m && { backgroundColor:m==='voice'?'#9333ea':'#2563eb' }]}>
+              style={[s.modeBtn, mode===m && { backgroundColor:m==='voice'?'#9333ea':m==='shadow'?'#0891b2':'#2563eb' }]}>
               <Text style={[s.modeTxt, mode===m && { color:'#fff' }]}>
-                {m==='read'?'📖 Read':'🎤 Voice'}
+                {m==='read'?'📖 Read':m==='voice'?'🎤 Voice':'🗣 Shadow'}
               </Text>
             </TouchableOpacity>
           ))}
@@ -431,212 +490,18 @@ export default function App() {
             </TouchableOpacity>
           </View>
         )}
-      </View>
-
-      {/* FILTRI */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.filtersRow} contentContainerStyle={{ gap:6, alignItems:'center', paddingRight:16 }}>
-        {filters.map(f=>(
-          <TouchableOpacity key={f} onPress={()=>applyFilter(f)} style={[s.fBtn, filter===f&&s.fBtnOn]}>
-            <Text style={[s.fTxt, filter===f&&{ color:'#4f8ef7' }]}>
-              {filterLabels[f]} ({f==='all'?CARDS.length:CARDS.filter(c=>c.tag===f).length})
-            </Text>
-          </TouchableOpacity>
-        ))}
-        <TouchableOpacity onPress={()=>{ setIsShuffled(v=>{ const n=!v; setDeck(buildDeck(filter,n,notRemembered)); setIdx(0); return n; }); }}
-          style={[s.fBtn, isShuffled&&{ borderColor:'#f7c94f' }]}>
-          <Text style={[s.fTxt, isShuffled&&{ color:'#f7c94f' }]}>🔀 Shuffle</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={()=>setShowNR(p=>!p)} style={[s.fBtn, showNR&&{ borderColor:'rgba(239,68,68,0.5)' }]}>
-          <Text style={[s.fTxt, showNR&&{ color:'#f87171' }]}>❌ Non ricordo ({notRemembered.length})</Text>
-        </TouchableOpacity>
-      </ScrollView>
-
-      {/* PROGRESS */}
-      <View style={s.progRow}>
-        <View style={s.progBg}><View style={[s.progFill, { width:`${pct}%` }]}/></View>
-        <Text style={s.progTxt}>{idx+1} / {deck.length}</Text>
-      </View>
-
-      {/* CARD */}
-      <Animated.View style={[s.card, { opacity:fadeAnim, transform:[{ scale:scaleAnim }] }]}>
-        <LinearGradient colors={['#0f1e3d','#0b1428']} style={s.cardTop}>
-          {voiceBadgeInfo && (
-            <View style={[s.vBadge, { borderColor:voiceBadgeInfo.color+'80', backgroundColor:voiceBadgeInfo.color+'20' }]}>
-              <Text style={[s.vBadgeTxt, { color:voiceBadgeInfo.color }]}>{voiceBadgeInfo.text}</Text>
-            </View>
-          )}
-          {mode==='read' && !shown && (
-            <View style={s.cdBadge}><Text style={s.cdTxt}>{countdown>0?countdown:''}</Text></View>
-          )}
-          {voicePhase==='listening' && (
-            <Animated.View style={[s.micRing, { transform:[{ scale:pulseAnim }] }]}>
-              <Text style={{ fontSize:24 }}>🎤</Text>
-            </Animated.View>
-          )}
-          <Text style={s.emoji}>{card.emoji}</Text>
-          <View style={s.wordRow}>
-            {card.pos && card.pos!=='phrasal' && <Text style={s.pos}>{card.pos}</Text>}
-            <Text style={s.wordIT}>
-              {card.it.replace(/\s*\(.*?\)/g, '')}
-              {card.it.includes('(') && (
-                <Text style={s.wordITsub}>{' '}{card.it.match(/\(.*?\)/)?.[0]}</Text>
-              )}
-            </Text>
-          </View>
-          <View style={[s.tag, { backgroundColor:tc.bg, borderColor:tc.border }]}>
-            <Text style={[s.tagTxt, { color:tc.text }]}>{TAG_LABELS[card.tag]||card.tag}</Text>
-          </View>
-        </LinearGradient>
-
-        <LinearGradient colors={['#111827','#080b14']} style={s.cardBot}>
-          {shown ? (
-            <View style={s.ansWrap}>
-              {voiceFeedback && (
-                <View style={[s.fbBadge, { backgroundColor:voiceFeedback==='correct'?'rgba(74,222,128,0.15)':'rgba(239,68,68,0.15)' }]}>
-                  <Text style={[s.fbTxt, { color:voiceFeedback==='correct'?'#4ade80':'#f87171' }]}>
-                    {voiceFeedback==='correct'?'✓ Corretto!':heardText?`✗ Hai detto: "${heardText}"` :'✗ Non sentito'}
-                  </Text>
-                </View>
-              )}
-              <View style={s.wordENRow}>
-                <Text style={s.wordEN}>{card.en}</Text>
-                <TouchableOpacity
-                  onPress={()=>{ Speech.stop(); Speech.speak(card.en, { language:'en-US', rate:0.85 }); }}
-                  style={s.speakBtn}>
-                  <Text style={s.speakBtnTxt}>🔊</Text>
-                </TouchableOpacity>
-              </View>
-              {card.syn && <Text style={s.syn}>sinonimo: <Text style={{ color:'rgba(238,242,255,0.65)' }}>{card.syn}</Text></Text>}
-              {card.ex ? <View style={s.exWrap}><Text style={s.exTxt}>{card.ex}</Text></View> : null}
-              <TouchableOpacity onPress={()=>{
-                const gi=CARDS.indexOf(card);
-                setNotRemembered(prev=>prev.includes(gi)?prev.filter(x=>x!==gi):[...prev,gi]);
-              }} style={[s.nrBtn, isNR&&s.nrBtnOn]}>
-                <Text style={s.nrTxt}>{isNR?'✓ Salvata':'❌ Non ricordo'}</Text>
+        {/* Opzioni Shadow */}
+        {mode==='shadow' && (
+          <View style={s.voiceOpts}>
+            {['all','phrasal-a2','phrasal-b1','phrasal-b2'].map(f=>(
+              <TouchableOpacity key={f} onPress={()=>{
+                const filtered = f==='all' ? SHADOW : SHADOW.filter(s=>s.tag===f);
+                setShadowDeck(filtered); setShadowIdx(0);
+                setShadowFilter(f);
+              }} style={[s.optBtn, shadowFilter===f && { borderColor:'#0891b2', backgroundColor:'rgba(8,145,178,0.1)' }]}>
+                <Text style={[s.optTxt, shadowFilter===f && { color:'#0891b2' }]}>
+                  {f==='all'?'Tutte':f==='phrasal-a2'?'A2':f==='phrasal-b1'?'B1':'B2'}
+                </Text>
               </TouchableOpacity>
-            </View>
-          ) : (
-            <Text style={s.dots}>
-              {mode==='voice'?(voicePhase==='speaking-it'?'🔊':voicePhase==='listening'?'👂':voicePhase==='paused'?'⏸':'💭'):'···'}
-            </Text>
-          )}
-        </LinearGradient>
-      </Animated.View>
-
-      {/* CONTROLLI */}
-      <View style={s.ctrlRow}>
-        {mode==='read' ? (
-          <>
-            <TouchableOpacity onPress={goPrev} disabled={idx===0} style={[s.navBtn, idx===0&&s.dis]}><Text style={s.navTxt}>←</Text></TouchableOpacity>
-            <TouchableOpacity onPress={goNext} disabled={idx===deck.length-1} style={[s.navMain, idx===deck.length-1&&s.dis]}><Text style={s.navMainTxt}>→</Text></TouchableOpacity>
-          </>
-        ) : (
-          <>
-            <TouchableOpacity onPress={()=>{ stopAll(); pausedRef.current=false; setPaused(false); cancelledRef.current=false; animateOut(()=>setIdx(p=>Math.max(0,p-1))); }} style={s.navBtn}>
-              <Text style={s.navTxt}>←</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={()=>{ stopAll(); pausedRef.current=false; setPaused(false); cancelledRef.current=false; animateOut(()=>setIdx(p=>Math.min(deck.length-1,p+1))); }} style={s.navBtn}>
-              <Text style={s.navTxt}>→ Salta</Text>
-            </TouchableOpacity>
-          </>
-        )}
-      </View>
-
-      {/* NON RICORDO */}
-      {showNR && (
-        <View style={s.nrPanel}>
-          <View style={s.nrHead}>
-            <Text style={s.nrTitle}>❌ Da ripassare ({notRemembered.length})</Text>
-            {notRemembered.length>0 && (
-              <TouchableOpacity onPress={()=>{ applyFilter('review'); setShowNR(false); }} style={s.nrRip}>
-                <Text style={s.nrRipTxt}>▶ Ripassa</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-          <ScrollView style={{ maxHeight:100 }}>
-            {notRemembered.length===0
-              ? <Text style={s.nrEmpty}>Nessuna parola salvata.</Text>
-              : <View style={s.nrList}>
-                  {notRemembered.map(gi=>{ const c=CARDS[gi]; if(!c) return null;
-                    return (
-                      <TouchableOpacity key={gi} onPress={()=>setNotRemembered(p=>p.filter(x=>x!==gi))} style={s.nrChip}>
-                        <Text style={s.nrChipTxt}>{c.it} → {c.en} ✕</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-            }
-          </ScrollView>
-        </View>
-      )}
-    </View>
-  );
-}
-
-const s = StyleSheet.create({
-  container: { flex:1, backgroundColor:'#080b14', paddingTop:Platform.OS==='android'?40:50, paddingHorizontal:16 },
-  header: { alignItems:'center', marginBottom:10 },
-  titleRow: { flexDirection:'row', alignItems:'center', gap:8 },
-  title: { fontSize:22, fontWeight:'700', color:'#eef2ff' },
-  accent: { color:'#4f8ef7' },
-  version: { fontSize:11, color:'#6b7a9e', fontFamily: Platform.OS==='ios'?'Courier':'monospace' },
-  subtitle: { fontSize:11, color:'#6b7a9e', marginTop:2, textTransform:'uppercase', letterSpacing:1 },
-  modeRow: { flexDirection:'row', marginTop:10, borderRadius:20, overflow:'hidden', borderWidth:1, borderColor:'rgba(255,255,255,0.1)' },
-  modeBtn: { paddingVertical:7, paddingHorizontal:20, backgroundColor:'#0f1624' },
-  modeTxt: { fontSize:12, color:'#6b7a9e', fontWeight:'600', textTransform:'uppercase', letterSpacing:1 },
-  voiceOpts: { flexDirection:'row', gap:8, marginTop:8 },
-  optBtn: { paddingVertical:5, paddingHorizontal:14, borderRadius:20, backgroundColor:'#0f1624', borderWidth:1, borderColor:'rgba(255,255,255,0.1)' },
-  optTxt: { fontSize:12, color:'#6b7a9e', fontWeight:'600' },
-  filtersRow: { maxHeight:44, marginBottom:8 },
-  fBtn: { paddingVertical:5, paddingHorizontal:12, borderRadius:20, backgroundColor:'#0f1624', borderWidth:1, borderColor:'rgba(255,255,255,0.07)' },
-  fBtnOn: { borderColor:'#4f8ef7', backgroundColor:'rgba(79,142,247,0.15)' },
-  fTxt: { fontSize:11, color:'#6b7a9e', textTransform:'uppercase', letterSpacing:0.8 },
-  progRow: { flexDirection:'row', alignItems:'center', gap:8, marginBottom:10 },
-  progBg: { flex:1, height:3, backgroundColor:'rgba(255,255,255,0.07)', borderRadius:10, overflow:'hidden' },
-  progFill: { height:'100%', backgroundColor:'#4f8ef7', borderRadius:10 },
-  progTxt: { fontSize:12, color:'#6b7a9e' },
-  card: { flex:1, borderRadius:24, overflow:'hidden', borderWidth:1, borderColor:'rgba(255,255,255,0.07)', marginBottom:10 },
-  cardTop: { flex:1.4, padding:28, alignItems:'center', justifyContent:'center', gap:12, borderBottomWidth:1, borderBottomColor:'rgba(255,255,255,0.07)' },
-  vBadge: { position:'absolute', top:14, left:14, borderRadius:20, paddingVertical:3, paddingHorizontal:12, borderWidth:1 },
-  vBadgeTxt: { fontSize:11, fontWeight:'600', textTransform:'uppercase', letterSpacing:1 },
-  cdBadge: { position:'absolute', top:14, right:14, width:32, height:32, borderRadius:16, backgroundColor:'rgba(79,142,247,0.2)', borderWidth:1, borderColor:'rgba(79,142,247,0.4)', alignItems:'center', justifyContent:'center' },
-  cdTxt: { fontSize:13, fontWeight:'700', color:'#4f8ef7' },
-  micRing: { position:'absolute', top:10, right:10, width:48, height:48, borderRadius:24, backgroundColor:'rgba(74,222,128,0.15)', borderWidth:2, borderColor:'rgba(74,222,128,0.5)', alignItems:'center', justifyContent:'center' },
-  emoji: { fontSize:52 },
-  wordRow: { flexDirection:'row', alignItems:'baseline', gap:8 },
-  pos: { fontSize:14, color:'rgba(238,242,255,0.4)', fontStyle:'italic' },
-  wordIT: { fontSize:30, fontWeight:'700', color:'#eef2ff', textAlign:'center' },
-  wordITsub: { fontSize:16, fontWeight:'400', color:'rgba(238,242,255,0.45)', fontStyle:'italic' },
-  tag: { borderRadius:20, paddingVertical:3, paddingHorizontal:12, borderWidth:1 },
-  tagTxt: { fontSize:11, fontWeight:'600', textTransform:'uppercase', letterSpacing:1.2 },
-  cardBot: { flex:1, padding:24, alignItems:'center', justifyContent:'center' },
-  ansWrap: { alignItems:'center', gap:10, width:'100%' },
-  fbBadge: { paddingVertical:6, paddingHorizontal:16, borderRadius:20, marginBottom:4 },
-  fbTxt: { fontSize:13, fontWeight:'700' },
-  wordENRow: { flexDirection:'row', alignItems:'center', gap:10 },
-  wordEN: { fontSize:28, fontWeight:'700', color:'#f7c94f' },
-  speakBtn: { width:36, height:36, borderRadius:18, backgroundColor:'rgba(247,201,79,0.15)', borderWidth:1, borderColor:'rgba(247,201,79,0.35)', alignItems:'center', justifyContent:'center' },
-  speakBtnTxt: { fontSize:16 },
-  syn: { fontSize:12, color:'rgba(238,242,255,0.4)', fontStyle:'italic' },
-  exWrap: { borderLeftWidth:2, borderLeftColor:'rgba(247,201,79,0.3)', paddingLeft:12, marginTop:4 },
-  exTxt: { fontSize:13, color:'rgba(238,242,255,0.55)', fontStyle:'italic', lineHeight:20 },
-  dots: { fontSize:28, color:'rgba(238,242,255,0.2)' },
-  nrBtn: { marginTop:8, paddingVertical:6, paddingHorizontal:20, borderRadius:20, backgroundColor:'rgba(239,68,68,0.08)', borderWidth:1, borderColor:'rgba(239,68,68,0.25)' },
-  nrBtnOn: { backgroundColor:'rgba(239,68,68,0.2)', borderColor:'rgba(239,68,68,0.6)' },
-  nrTxt: { fontSize:12, color:'#f87171', fontWeight:'600' },
-  ctrlRow: { flexDirection:'row', justifyContent:'center', alignItems:'center', gap:16, marginBottom:10 },
-  navBtn: { width:52, height:52, borderRadius:26, backgroundColor:'#0f1624', borderWidth:1, borderColor:'rgba(255,255,255,0.07)', alignItems:'center', justifyContent:'center' },
-  navMain: { width:64, height:64, borderRadius:32, backgroundColor:'#2563eb', alignItems:'center', justifyContent:'center' },
-  dis: { opacity:0.3 },
-  navTxt: { color:'#eef2ff', fontSize:18 },
-  navMainTxt: { color:'#fff', fontSize:22 },
-  nrPanel: { backgroundColor:'#0f1624', borderRadius:20, padding:16, borderWidth:1, borderColor:'rgba(255,255,255,0.07)', marginBottom:8 },
-  nrHead: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:10 },
-  nrTitle: { fontSize:11, color:'#6b7a9e', textTransform:'uppercase', fontWeight:'600', letterSpacing:1 },
-  nrRip: { paddingVertical:4, paddingHorizontal:12, borderRadius:20, backgroundColor:'rgba(239,68,68,0.15)', borderWidth:1, borderColor:'rgba(239,68,68,0.4)' },
-  nrRipTxt: { fontSize:11, color:'#f87171', fontWeight:'600' },
-  nrEmpty: { fontSize:12, color:'#6b7a9e', fontStyle:'italic' },
-  nrList: { flexDirection:'row', flexWrap:'wrap', gap:6 },
-  nrChip: { paddingVertical:4, paddingHorizontal:10, borderRadius:20, backgroundColor:'rgba(239,68,68,0.08)', borderWidth:1, borderColor:'rgba(239,68,68,0.2)' },
-  nrChipTxt: { fontSize:11, color:'#f87171' },
-});
+            ))}
+            <TouchableOpacity onPress={()
