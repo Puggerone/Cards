@@ -7,10 +7,22 @@ import * as Speech from 'expo-speech';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import Voice from '@react-native-voice/voice';
+import TrackPlayer, {
+  usePlaybackState,
+  useProgress,
+  State,
+  Event,
+  RepeatMode,
+  Capability,
+} from 'react-native-track-player';
+import { PlaybackService } from './service';
 import CARDS from './cards';
 import SHADOW from './shadowing';
 
 const APP_VERSION = '1.5';
+
+// ── Registra il service RNTP una volta sola ───────────────────────────────────
+TrackPlayer.registerPlaybackService(() => PlaybackService);
 
 const TAG_COLORS = {
   a2:           { text:'#4ff7a0', bg:'rgba(79,247,160,0.15)',  border:'rgba(79,247,160,0.3)' },
@@ -20,6 +32,15 @@ const TAG_COLORS = {
   'phrasal-b2': { text:'#e879f9', bg:'rgba(232,121,249,0.15)',border:'rgba(232,121,249,0.3)' },
 };
 const TAG_LABELS = { a2:'A2', b1:'B1', b2:'B2', 'phrasal-b1':'Phrasal B1', 'phrasal-b2':'Phrasal B2' };
+
+// ── Mappa tag → cartella MP3 ──────────────────────────────────────────────────
+// I file si trovano in assets/audio/shadow_001.mp3 ... shadow_300.mp3
+function getShadowAudioUrl(id) {
+  const num = String(id).padStart(3, '0');
+  // require() statico non funziona con nomi dinamici in RN → usiamo path relativo
+  // RNTP accetta path locali nel formato asset://
+  return `asset:/audio/shadow_${num}.mp3`;
+}
 
 function shuffle(arr) {
   const a = [...arr];
@@ -38,9 +59,23 @@ function checkAnswer(heard, expected) {
   return words.some(w => h.includes(w));
 }
 
+// ── Converti shadowDeck in tracce RNTP ───────────────────────────────────────
+function deckToTracks(deck) {
+  return deck.map(s => ({
+    id: String(s.id),
+    url: getShadowAudioUrl(s.id),
+    title: s.en,
+    artist: 'Cards Shadow',
+    album: s.tag === 'phrasal-a2' ? 'A2' : s.tag === 'phrasal-b1' ? 'B1' : 'B2',
+    artwork: require('./assets/icon.png'),
+    // Durata silenzio dopo prima lettura: gestita via Event.PlaybackQueueEnded
+    // La pausa da 5s e il replay sono gestiti in JS tramite Event.PlaybackTrackChanged
+  }));
+}
+
 export default function App() {
   // ── State ─────────────────────────────────────────────────────────
-  const [mode, setMode] = useState('read');         // 'read' | 'voice' | 'shadow'
+  const [mode, setMode] = useState('read');
   const [useMic, setUseMic] = useState(true);
   const [paused, setPaused] = useState(false);
   const [filter, setFilter] = useState('all');
@@ -60,6 +95,7 @@ export default function App() {
   const [shadowDeck, setShadowDeck] = useState(SHADOW);
   const [shadowIdx, setShadowIdx] = useState(0);
   const [shadowPhase, setShadowPhase] = useState('idle');
+  const [rntrReady, setRntpReady] = useState(false);
 
   // ── Refs ──────────────────────────────────────────────────────────
   const fadeAnim = useRef(new Animated.Value(1)).current;
@@ -73,6 +109,101 @@ export default function App() {
   const cancelledRef = useRef(false);
   const pausedRef = useRef(false);
   const isReadyRef = useRef(false);
+  const shadowPhaseRef = useRef('idle');
+  const shadowIdxRef = useRef(0);
+  const shadowDeckRef = useRef(SHADOW);
+
+  // Aggiorna refs quando cambiano gli state
+  useEffect(() => { shadowPhaseRef.current = shadowPhase; }, [shadowPhase]);
+  useEffect(() => { shadowIdxRef.current = shadowIdx; }, [shadowIdx]);
+  useEffect(() => { shadowDeckRef.current = shadowDeck; }, [shadowDeck]);
+
+  // ── Setup RNTP ────────────────────────────────────────────────────
+  useEffect(() => {
+    const setupRNTP = async () => {
+      try {
+        await TrackPlayer.setupPlayer({
+          maxCacheSize: 1024 * 5, // 5MB cache
+        });
+        await TrackPlayer.updateOptions({
+          capabilities: [
+            Capability.Play,
+            Capability.Pause,
+            Capability.SkipToNext,
+            Capability.SkipToPrevious,
+            Capability.Stop,
+          ],
+          compactCapabilities: [
+            Capability.Play,
+            Capability.Pause,
+            Capability.SkipToNext,
+          ],
+          notificationCapabilities: [
+            Capability.Play,
+            Capability.Pause,
+            Capability.SkipToNext,
+            Capability.SkipToPrevious,
+          ],
+          android: {
+            appKilledPlaybackBehavior: 1, // StopPlaybackAndRemoveNotification
+          },
+        });
+        setRntpReady(true);
+      } catch (e) {
+        console.log('RNTP setup error:', e);
+      }
+    };
+    setupRNTP();
+    return () => {
+      TrackPlayer.reset().catch(() => {});
+    };
+  }, []);
+
+  // ── Listener RNTP: gestisce pausa 5s + replay ─────────────────────
+  useEffect(() => {
+    if (!rntrReady) return;
+
+    // Quando una traccia finisce → pausa 5s → replay → pausa 2s → avanti
+    const sub = TrackPlayer.addEventListener(Event.PlaybackTrackChanged, async (e) => {
+      // e.nextTrack è undefined quando la coda finisce
+      if (e.nextTrack == null) return;
+      if (pausedRef.current || cancelledRef.current) return;
+
+      // La traccia precedente è finita: avvia ciclo shadow
+      setShadowPhase('waiting');
+      shadowTimerRef.current = setTimeout(async () => {
+        if (pausedRef.current || cancelledRef.current) return;
+        // Replay: torna alla traccia precedente e riproduci
+        setShadowPhase('repeating');
+        try {
+          const queue = await TrackPlayer.getQueue();
+          const currentIdx = await TrackPlayer.getCurrentTrack();
+          const replayIdx = currentIdx > 0 ? currentIdx - 1 : 0;
+          // Inserisce una copia della traccia corrente da riascoltare
+          await TrackPlayer.skip(replayIdx);
+          await TrackPlayer.play();
+          // Dopo il replay → avanza automaticamente (RNTP va alla successiva)
+        } catch (err) {}
+      }, 5000);
+    });
+
+    return () => { sub.remove(); };
+  }, [rntrReady]);
+
+  // ── Carica deck in RNTP quando entra in shadow mode ──────────────
+  const loadShadowDeckInRNTP = useCallback(async (deck, startIdx = 0) => {
+    if (!rntrReady) return;
+    try {
+      await TrackPlayer.reset();
+      const tracks = deckToTracks(deck);
+      await TrackPlayer.add(tracks);
+      if (startIdx > 0) {
+        await TrackPlayer.skip(startIdx);
+      }
+    } catch (e) {
+      console.log('RNTP load error:', e);
+    }
+  }, [rntrReady]);
 
   // ── Permesso microfono ────────────────────────────────────────────
   useEffect(() => {
@@ -216,6 +347,12 @@ export default function App() {
     stopPulse();
   }, []);
 
+  // ── Stop Shadow (ferma anche RNTP) ───────────────────────────────
+  const stopShadow = useCallback(() => {
+    stopAll();
+    TrackPlayer.pause().catch(() => {});
+  }, [stopAll]);
+
   // ── Logica READ ───────────────────────────────────────────────────
   const startReadCard = useCallback(() => {
     clearTimeout(revealRef.current);
@@ -227,40 +364,19 @@ export default function App() {
     revealRef.current = setTimeout(() => setShown(true), 3000);
   }, []);
 
-  // ── Logica SHADOW ─────────────────────────────────────────────────
-  const startShadowCard = useCallback((sentence) => {
+  // ── Logica SHADOW via RNTP ────────────────────────────────────────
+  const startShadowRNTP = useCallback(async () => {
+    if (!rntrReady) return;
     cancelledRef.current = false;
-    clearTimeout(shadowTimerRef.current);
+    pausedRef.current = false;
+    setPaused(false);
     setShadowPhase('speaking');
-    Speech.stop();
-    Speech.speak(sentence.en, {
-      language: 'en-US', rate: 0.82,
-      onDone: () => {
-        if (cancelledRef.current || pausedRef.current) return;
-        setShadowPhase('waiting');
-        shadowTimerRef.current = setTimeout(() => {
-          if (cancelledRef.current || pausedRef.current) return;
-          setShadowPhase('repeating');
-          Speech.speak(sentence.en, {
-            language: 'en-US', rate: 0.82,
-            onDone: () => {
-              if (cancelledRef.current || pausedRef.current) return;
-              shadowTimerRef.current = setTimeout(() => {
-                if (cancelledRef.current || pausedRef.current) return;
-                setShadowPhase('idle');
-                setShadowIdx(p => p < shadowDeck.length - 1 ? p + 1 : p);
-              }, 2000);
-            },
-            onError: () => { setShadowIdx(p => p < shadowDeck.length - 1 ? p + 1 : p); }
-          });
-        }, 5000);
-      },
-      onError: () => {
-        if (cancelledRef.current || pausedRef.current) return;
-        setShadowIdx(p => p < shadowDeck.length - 1 ? p + 1 : p);
-      }
-    });
-  }, [shadowDeck]);
+    try {
+      await TrackPlayer.play();
+    } catch (e) {
+      console.log('RNTP play error:', e);
+    }
+  }, [rntrReady]);
 
   // ── Avanza card ───────────────────────────────────────────────────
   const goNext = useCallback(() => {
@@ -392,12 +508,33 @@ export default function App() {
   // ── useEffect shadow ──────────────────────────────────────────────
   useEffect(() => {
     if (mode !== 'shadow') return;
-    if (pausedRef.current) return;
-    cancelledRef.current = false;
-    const sentence = shadowDeck[shadowIdx];
-    if (sentence) startShadowCard(sentence);
-    return () => { stopAll(); };
-  }, [shadowIdx, shadowDeck]); // eslint-disable-line
+    if (!rntrReady) return;
+    // Carica il deck in RNTP e avvia
+    loadShadowDeckInRNTP(shadowDeck, shadowIdx).then(() => {
+      if (!pausedRef.current) startShadowRNTP();
+    });
+    return () => { TrackPlayer.pause().catch(() => {}); };
+  }, [mode, rntrReady, shadowDeck]); // eslint-disable-line
+
+  // ── Sync shadowIdx con RNTP ───────────────────────────────────────
+  useEffect(() => {
+    if (mode !== 'shadow') return;
+    if (!rntrReady) return;
+    TrackPlayer.skip(shadowIdx).catch(() => {});
+  }, [shadowIdx]); // eslint-disable-line
+
+  // ── Listener avanzamento RNTP → aggiorna shadowIdx UI ────────────
+  useEffect(() => {
+    if (!rntrReady) return;
+    const sub = TrackPlayer.addEventListener(Event.PlaybackActiveTrackChanged, async () => {
+      try {
+        const idx = await TrackPlayer.getActiveTrackIndex();
+        if (idx != null) setShadowIdx(idx);
+        setShadowPhase('speaking');
+      } catch (e) {}
+    });
+    return () => sub.remove();
+  }, [rntrReady]);
 
   // ── useEffect principale (read/voice) ─────────────────────────────
   useEffect(() => {
@@ -418,6 +555,7 @@ export default function App() {
       Alert.alert('Microfono', 'Permesso microfono non concesso.');
     }
     stopAll();
+    TrackPlayer.pause().catch(() => {});
     pausedRef.current = false;
     setPaused(false);
     cancelledRef.current = false;
@@ -504,28 +642,33 @@ export default function App() {
         {mode === 'shadow' && (
           <View style={s.voiceOpts}>
             {['all', 'phrasal-a2', 'phrasal-b1', 'phrasal-b2'].map(f => (
-              <TouchableOpacity key={f} onPress={() => {
+              <TouchableOpacity key={f} onPress={async () => {
                 const filtered = f === 'all' ? SHADOW : SHADOW.filter(x => x.tag === f);
-                stopAll();
+                stopShadow();
                 cancelledRef.current = false;
                 setShadowDeck(filtered);
                 setShadowFilter(f);
                 setShadowIdx(0);
+                // Ricarica RNTP con il nuovo deck
+                await loadShadowDeckInRNTP(filtered, 0);
+                if (!pausedRef.current) startShadowRNTP();
               }} style={[s.optBtn, shadowFilter === f && { borderColor: '#0891b2', backgroundColor: 'rgba(8,145,178,0.1)' }]}>
                 <Text style={[s.optTxt, shadowFilter === f && { color: '#0891b2' }]}>
                   {f === 'all' ? 'Tutte' : f === 'phrasal-a2' ? 'A2' : f === 'phrasal-b1' ? 'B1' : 'B2'}
                 </Text>
               </TouchableOpacity>
             ))}
-            <TouchableOpacity onPress={() => {
+            <TouchableOpacity onPress={async () => {
               const np = !pausedRef.current;
               pausedRef.current = np;
               setPaused(np);
-              if (np) { stopAll(); setShadowPhase('paused'); }
-              else {
+              if (np) {
+                stopShadow();
+                setShadowPhase('paused');
+              } else {
                 cancelledRef.current = false;
-                const sentence = shadowDeck[shadowIdx];
-                if (sentence) startShadowCard(sentence);
+                setShadowPhase('speaking');
+                await TrackPlayer.play();
               }
             }} style={[s.optBtn, paused && { borderColor: '#f7c94f', backgroundColor: 'rgba(247,201,79,0.1)' }]}>
               <Text style={[s.optTxt, paused && { color: '#f7c94f' }]}>
@@ -692,15 +835,23 @@ export default function App() {
       <View style={s.ctrlRow}>
         {mode === 'shadow' ? (
           <>
-            <TouchableOpacity onPress={() => {
-              stopAll(); cancelledRef.current = false;
-              setShadowIdx(p => Math.max(0, p - 1));
+            <TouchableOpacity onPress={async () => {
+              stopShadow();
+              cancelledRef.current = false;
+              const newIdx = Math.max(0, shadowIdx - 1);
+              setShadowIdx(newIdx);
+              await TrackPlayer.skip(newIdx);
+              if (!pausedRef.current) await TrackPlayer.play();
             }} style={s.navBtn}>
               <Text style={s.navTxt}>←</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => {
-              stopAll(); cancelledRef.current = false;
-              setShadowIdx(p => Math.min(shadowDeck.length - 1, p + 1));
+            <TouchableOpacity onPress={async () => {
+              stopShadow();
+              cancelledRef.current = false;
+              const newIdx = Math.min(shadowDeck.length - 1, shadowIdx + 1);
+              setShadowIdx(newIdx);
+              await TrackPlayer.skip(newIdx);
+              if (!pausedRef.current) await TrackPlayer.play();
             }} style={s.navBtn}>
               <Text style={s.navTxt}>→ Salta</Text>
             </TouchableOpacity>
