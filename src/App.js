@@ -41,7 +41,6 @@ function getShadowAudioUrl(id) {
   // RNTP accetta path locali nel formato asset://
   return `asset:/audio/shadow_${num}.mp3`;
 }
-
 function shuffle(arr) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
