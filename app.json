@@ -33,9 +33,7 @@
           "microphonePermission": "VoiceCards usa il microfono per riconoscere la tua risposta."
         }
       ],
-      [
-        "react-native-track-player"
-      ]
+  
     ],
     "extra": {
       "eas": {
