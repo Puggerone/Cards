@@ -651,7 +651,7 @@ const s = StyleSheet.create({
   exTxt:       { fontSize:13, color:'rgba(238,242,255,0.55)', fontStyle:'italic', lineHeight:20 },
   dots:        { fontSize:28, color:'rgba(238,242,255,0.2)' },
   nrBtn:       { marginTop:8, paddingVertical:6, paddingHorizontal:20, borderRadius:20, backgroundColor:'rgba(239,68,68,0.08)', borderWidth:1, borderColor:'rgba(239,68,68,0.25)' },
-   nrBtnOn:     { backgroundColor:'rgba(239,68,68,0.2)', borderColor:'rgba(239,68,68,0.6)' },
+  nrBtnOn:     { backgroundColor:'rgba(239,68,68,0.2)', borderColor:'rgba(239,68,68,0.6)' },
   nrTxt:       { fontSize:12, color:'#f87171', fontWeight:'600' },
   ctrlRow:     { flexDirection:'row', justifyContent:'center', alignItems:'center', gap:16, marginBottom:10 },
   navBtn:      { width:52, height:52, borderRadius:26, backgroundColor:'#0f1624', borderWidth:1, borderColor:'rgba(255,255,255,0.07)', alignItems:'center', justifyContent:'center' },
