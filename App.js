@@ -7,9 +7,8 @@ import * as Speech from 'expo-speech';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import Voice from '@react-native-voice/voice';
-import CARDS from './cards';
-import SHADOW from './shadowing';
-
+import CARDS from './src/cards';
+import SHADOW from './src/shadowing';
 const APP_VERSION = '1.5';
 
 const TAG_COLORS = {
