@@ -15,15 +15,6 @@
         "android.permission.INTERNET",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
-      ],
-      "intentFilters": [
-        {
-          "action": "android.intent.action.MAIN",
-          "category": ["android.intent.category.LAUNCHER"]
-        },
-        {
-          "action": "android.media.browse.MediaBrowserService"
-        }
       ]
     },
     "plugins": [
