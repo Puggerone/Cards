@@ -6,7 +6,7 @@
 
 const SHADOW = [
 
-  // ── PHRASAL A2 ───────────────────────────────────────────────────────────
+ // ── PHRASAL A2 ───────────────────────────────────────────────────────────
 
   // wake up / get up
   { id:1,   en:"I woke up at seven and could not sleep.",                        tag:"phrasal-a2" },
