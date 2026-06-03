@@ -7,8 +7,10 @@ import * as Speech from 'expo-speech';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import Voice from '@react-native-voice/voice';
+import { Audio } from 'expo-av';
 import CARDS from './src/cards';
 import SHADOW from './src/shadowing';
+
 const APP_VERSION = '1.5';
 
 const TAG_COLORS = {
@@ -19,6 +21,310 @@ const TAG_COLORS = {
   'phrasal-b2': { text:'#e879f9', bg:'rgba(232,121,249,0.15)',border:'rgba(232,121,249,0.3)' },
 };
 const TAG_LABELS = { a2:'A2', b1:'B1', b2:'B2', 'phrasal-b1':'Phrasal B1', 'phrasal-b2':'Phrasal B2' };
+
+// ── Mappa statica require() per tutti i 300 MP3 ──────────────────────────────
+const AUDIO_FILES = {
+  1: require('./assets/audio/shadow_001.mp3'),
+  2: require('./assets/audio/shadow_002.mp3'),
+  3: require('./assets/audio/shadow_003.mp3'),
+  4: require('./assets/audio/shadow_004.mp3'),
+  5: require('./assets/audio/shadow_005.mp3'),
+  6: require('./assets/audio/shadow_006.mp3'),
+  7: require('./assets/audio/shadow_007.mp3'),
+  8: require('./assets/audio/shadow_008.mp3'),
+  9: require('./assets/audio/shadow_009.mp3'),
+  10: require('./assets/audio/shadow_010.mp3'),
+  11: require('./assets/audio/shadow_011.mp3'),
+  12: require('./assets/audio/shadow_012.mp3'),
+  13: require('./assets/audio/shadow_013.mp3'),
+  14: require('./assets/audio/shadow_014.mp3'),
+  15: require('./assets/audio/shadow_015.mp3'),
+  16: require('./assets/audio/shadow_016.mp3'),
+  17: require('./assets/audio/shadow_017.mp3'),
+  18: require('./assets/audio/shadow_018.mp3'),
+  19: require('./assets/audio/shadow_019.mp3'),
+  20: require('./assets/audio/shadow_020.mp3'),
+  21: require('./assets/audio/shadow_021.mp3'),
+  22: require('./assets/audio/shadow_022.mp3'),
+  23: require('./assets/audio/shadow_023.mp3'),
+  24: require('./assets/audio/shadow_024.mp3'),
+  25: require('./assets/audio/shadow_025.mp3'),
+  26: require('./assets/audio/shadow_026.mp3'),
+  27: require('./assets/audio/shadow_027.mp3'),
+  28: require('./assets/audio/shadow_028.mp3'),
+  29: require('./assets/audio/shadow_029.mp3'),
+  30: require('./assets/audio/shadow_030.mp3'),
+  31: require('./assets/audio/shadow_031.mp3'),
+  32: require('./assets/audio/shadow_032.mp3'),
+  33: require('./assets/audio/shadow_033.mp3'),
+  34: require('./assets/audio/shadow_034.mp3'),
+  35: require('./assets/audio/shadow_035.mp3'),
+  36: require('./assets/audio/shadow_036.mp3'),
+  37: require('./assets/audio/shadow_037.mp3'),
+  38: require('./assets/audio/shadow_038.mp3'),
+  39: require('./assets/audio/shadow_039.mp3'),
+  40: require('./assets/audio/shadow_040.mp3'),
+  41: require('./assets/audio/shadow_041.mp3'),
+  42: require('./assets/audio/shadow_042.mp3'),
+  43: require('./assets/audio/shadow_043.mp3'),
+  44: require('./assets/audio/shadow_044.mp3'),
+  45: require('./assets/audio/shadow_045.mp3'),
+  46: require('./assets/audio/shadow_046.mp3'),
+  47: require('./assets/audio/shadow_047.mp3'),
+  48: require('./assets/audio/shadow_048.mp3'),
+  49: require('./assets/audio/shadow_049.mp3'),
+  50: require('./assets/audio/shadow_050.mp3'),
+  51: require('./assets/audio/shadow_051.mp3'),
+  52: require('./assets/audio/shadow_052.mp3'),
+  53: require('./assets/audio/shadow_053.mp3'),
+  54: require('./assets/audio/shadow_054.mp3'),
+  55: require('./assets/audio/shadow_055.mp3'),
+  56: require('./assets/audio/shadow_056.mp3'),
+  57: require('./assets/audio/shadow_057.mp3'),
+  58: require('./assets/audio/shadow_058.mp3'),
+  59: require('./assets/audio/shadow_059.mp3'),
+  60: require('./assets/audio/shadow_060.mp3'),
+  61: require('./assets/audio/shadow_061.mp3'),
+  62: require('./assets/audio/shadow_062.mp3'),
+  63: require('./assets/audio/shadow_063.mp3'),
+  64: require('./assets/audio/shadow_064.mp3'),
+  65: require('./assets/audio/shadow_065.mp3'),
+  66: require('./assets/audio/shadow_066.mp3'),
+  67: require('./assets/audio/shadow_067.mp3'),
+  68: require('./assets/audio/shadow_068.mp3'),
+  69: require('./assets/audio/shadow_069.mp3'),
+  70: require('./assets/audio/shadow_070.mp3'),
+  71: require('./assets/audio/shadow_071.mp3'),
+  72: require('./assets/audio/shadow_072.mp3'),
+  73: require('./assets/audio/shadow_073.mp3'),
+  74: require('./assets/audio/shadow_074.mp3'),
+  75: require('./assets/audio/shadow_075.mp3'),
+  76: require('./assets/audio/shadow_076.mp3'),
+  77: require('./assets/audio/shadow_077.mp3'),
+  78: require('./assets/audio/shadow_078.mp3'),
+  79: require('./assets/audio/shadow_079.mp3'),
+  80: require('./assets/audio/shadow_080.mp3'),
+  81: require('./assets/audio/shadow_081.mp3'),
+  82: require('./assets/audio/shadow_082.mp3'),
+  83: require('./assets/audio/shadow_083.mp3'),
+  84: require('./assets/audio/shadow_084.mp3'),
+  85: require('./assets/audio/shadow_085.mp3'),
+  86: require('./assets/audio/shadow_086.mp3'),
+  87: require('./assets/audio/shadow_087.mp3'),
+  88: require('./assets/audio/shadow_088.mp3'),
+  89: require('./assets/audio/shadow_089.mp3'),
+  90: require('./assets/audio/shadow_090.mp3'),
+  91: require('./assets/audio/shadow_091.mp3'),
+  92: require('./assets/audio/shadow_092.mp3'),
+  93: require('./assets/audio/shadow_093.mp3'),
+  94: require('./assets/audio/shadow_094.mp3'),
+  95: require('./assets/audio/shadow_095.mp3'),
+  96: require('./assets/audio/shadow_096.mp3'),
+  97: require('./assets/audio/shadow_097.mp3'),
+  98: require('./assets/audio/shadow_098.mp3'),
+  99: require('./assets/audio/shadow_099.mp3'),
+  100: require('./assets/audio/shadow_100.mp3'),
+  101: require('./assets/audio/shadow_101.mp3'),
+  102: require('./assets/audio/shadow_102.mp3'),
+  103: require('./assets/audio/shadow_103.mp3'),
+  104: require('./assets/audio/shadow_104.mp3'),
+  105: require('./assets/audio/shadow_105.mp3'),
+  106: require('./assets/audio/shadow_106.mp3'),
+  107: require('./assets/audio/shadow_107.mp3'),
+  108: require('./assets/audio/shadow_108.mp3'),
+  109: require('./assets/audio/shadow_109.mp3'),
+  110: require('./assets/audio/shadow_110.mp3'),
+  111: require('./assets/audio/shadow_111.mp3'),
+  112: require('./assets/audio/shadow_112.mp3'),
+  113: require('./assets/audio/shadow_113.mp3'),
+  114: require('./assets/audio/shadow_114.mp3'),
+  115: require('./assets/audio/shadow_115.mp3'),
+  116: require('./assets/audio/shadow_116.mp3'),
+  117: require('./assets/audio/shadow_117.mp3'),
+  118: require('./assets/audio/shadow_118.mp3'),
+  119: require('./assets/audio/shadow_119.mp3'),
+  120: require('./assets/audio/shadow_120.mp3'),
+  121: require('./assets/audio/shadow_121.mp3'),
+  122: require('./assets/audio/shadow_122.mp3'),
+  123: require('./assets/audio/shadow_123.mp3'),
+  124: require('./assets/audio/shadow_124.mp3'),
+  125: require('./assets/audio/shadow_125.mp3'),
+  126: require('./assets/audio/shadow_126.mp3'),
+  127: require('./assets/audio/shadow_127.mp3'),
+  128: require('./assets/audio/shadow_128.mp3'),
+  129: require('./assets/audio/shadow_129.mp3'),
+  130: require('./assets/audio/shadow_130.mp3'),
+  131: require('./assets/audio/shadow_131.mp3'),
+  132: require('./assets/audio/shadow_132.mp3'),
+  133: require('./assets/audio/shadow_133.mp3'),
+  134: require('./assets/audio/shadow_134.mp3'),
+  135: require('./assets/audio/shadow_135.mp3'),
+  136: require('./assets/audio/shadow_136.mp3'),
+  137: require('./assets/audio/shadow_137.mp3'),
+  138: require('./assets/audio/shadow_138.mp3'),
+  139: require('./assets/audio/shadow_139.mp3'),
+  140: require('./assets/audio/shadow_140.mp3'),
+  141: require('./assets/audio/shadow_141.mp3'),
+  142: require('./assets/audio/shadow_142.mp3'),
+  143: require('./assets/audio/shadow_143.mp3'),
+  144: require('./assets/audio/shadow_144.mp3'),
+  145: require('./assets/audio/shadow_145.mp3'),
+  146: require('./assets/audio/shadow_146.mp3'),
+  147: require('./assets/audio/shadow_147.mp3'),
+  148: require('./assets/audio/shadow_148.mp3'),
+  149: require('./assets/audio/shadow_149.mp3'),
+  150: require('./assets/audio/shadow_150.mp3'),
+  151: require('./assets/audio/shadow_151.mp3'),
+  152: require('./assets/audio/shadow_152.mp3'),
+  153: require('./assets/audio/shadow_153.mp3'),
+  154: require('./assets/audio/shadow_154.mp3'),
+  155: require('./assets/audio/shadow_155.mp3'),
+  156: require('./assets/audio/shadow_156.mp3'),
+  157: require('./assets/audio/shadow_157.mp3'),
+  158: require('./assets/audio/shadow_158.mp3'),
+  159: require('./assets/audio/shadow_159.mp3'),
+  160: require('./assets/audio/shadow_160.mp3'),
+  161: require('./assets/audio/shadow_161.mp3'),
+  162: require('./assets/audio/shadow_162.mp3'),
+  163: require('./assets/audio/shadow_163.mp3'),
+  164: require('./assets/audio/shadow_164.mp3'),
+  165: require('./assets/audio/shadow_165.mp3'),
+  166: require('./assets/audio/shadow_166.mp3'),
+  167: require('./assets/audio/shadow_167.mp3'),
+  168: require('./assets/audio/shadow_168.mp3'),
+  169: require('./assets/audio/shadow_169.mp3'),
+  170: require('./assets/audio/shadow_170.mp3'),
+  171: require('./assets/audio/shadow_171.mp3'),
+  172: require('./assets/audio/shadow_172.mp3'),
+  173: require('./assets/audio/shadow_173.mp3'),
+  174: require('./assets/audio/shadow_174.mp3'),
+  175: require('./assets/audio/shadow_175.mp3'),
+  176: require('./assets/audio/shadow_176.mp3'),
+  177: require('./assets/audio/shadow_177.mp3'),
+  178: require('./assets/audio/shadow_178.mp3'),
+  179: require('./assets/audio/shadow_179.mp3'),
+  180: require('./assets/audio/shadow_180.mp3'),
+  181: require('./assets/audio/shadow_181.mp3'),
+  182: require('./assets/audio/shadow_182.mp3'),
+  183: require('./assets/audio/shadow_183.mp3'),
+  184: require('./assets/audio/shadow_184.mp3'),
+  185: require('./assets/audio/shadow_185.mp3'),
+  186: require('./assets/audio/shadow_186.mp3'),
+  187: require('./assets/audio/shadow_187.mp3'),
+  188: require('./assets/audio/shadow_188.mp3'),
+  189: require('./assets/audio/shadow_189.mp3'),
+  190: require('./assets/audio/shadow_190.mp3'),
+  191: require('./assets/audio/shadow_191.mp3'),
+  192: require('./assets/audio/shadow_192.mp3'),
+  193: require('./assets/audio/shadow_193.mp3'),
+  194: require('./assets/audio/shadow_194.mp3'),
+  195: require('./assets/audio/shadow_195.mp3'),
+  196: require('./assets/audio/shadow_196.mp3'),
+  197: require('./assets/audio/shadow_197.mp3'),
+  198: require('./assets/audio/shadow_198.mp3'),
+  199: require('./assets/audio/shadow_199.mp3'),
+  200: require('./assets/audio/shadow_200.mp3'),
+  201: require('./assets/audio/shadow_201.mp3'),
+  202: require('./assets/audio/shadow_202.mp3'),
+  203: require('./assets/audio/shadow_203.mp3'),
+  204: require('./assets/audio/shadow_204.mp3'),
+  205: require('./assets/audio/shadow_205.mp3'),
+  206: require('./assets/audio/shadow_206.mp3'),
+  207: require('./assets/audio/shadow_207.mp3'),
+  208: require('./assets/audio/shadow_208.mp3'),
+  209: require('./assets/audio/shadow_209.mp3'),
+  210: require('./assets/audio/shadow_210.mp3'),
+  211: require('./assets/audio/shadow_211.mp3'),
+  212: require('./assets/audio/shadow_212.mp3'),
+  213: require('./assets/audio/shadow_213.mp3'),
+  214: require('./assets/audio/shadow_214.mp3'),
+  215: require('./assets/audio/shadow_215.mp3'),
+  216: require('./assets/audio/shadow_216.mp3'),
+  217: require('./assets/audio/shadow_217.mp3'),
+  218: require('./assets/audio/shadow_218.mp3'),
+  219: require('./assets/audio/shadow_219.mp3'),
+  220: require('./assets/audio/shadow_220.mp3'),
+  221: require('./assets/audio/shadow_221.mp3'),
+  222: require('./assets/audio/shadow_222.mp3'),
+  223: require('./assets/audio/shadow_223.mp3'),
+  224: require('./assets/audio/shadow_224.mp3'),
+  225: require('./assets/audio/shadow_225.mp3'),
+  226: require('./assets/audio/shadow_226.mp3'),
+  227: require('./assets/audio/shadow_227.mp3'),
+  228: require('./assets/audio/shadow_228.mp3'),
+  229: require('./assets/audio/shadow_229.mp3'),
+  230: require('./assets/audio/shadow_230.mp3'),
+  231: require('./assets/audio/shadow_231.mp3'),
+  232: require('./assets/audio/shadow_232.mp3'),
+  233: require('./assets/audio/shadow_233.mp3'),
+  234: require('./assets/audio/shadow_234.mp3'),
+  235: require('./assets/audio/shadow_235.mp3'),
+  236: require('./assets/audio/shadow_236.mp3'),
+  237: require('./assets/audio/shadow_237.mp3'),
+  238: require('./assets/audio/shadow_238.mp3'),
+  239: require('./assets/audio/shadow_239.mp3'),
+  240: require('./assets/audio/shadow_240.mp3'),
+  241: require('./assets/audio/shadow_241.mp3'),
+  242: require('./assets/audio/shadow_242.mp3'),
+  243: require('./assets/audio/shadow_243.mp3'),
+  244: require('./assets/audio/shadow_244.mp3'),
+  245: require('./assets/audio/shadow_245.mp3'),
+  246: require('./assets/audio/shadow_246.mp3'),
+  247: require('./assets/audio/shadow_247.mp3'),
+  248: require('./assets/audio/shadow_248.mp3'),
+  249: require('./assets/audio/shadow_249.mp3'),
+  250: require('./assets/audio/shadow_250.mp3'),
+  251: require('./assets/audio/shadow_251.mp3'),
+  252: require('./assets/audio/shadow_252.mp3'),
+  253: require('./assets/audio/shadow_253.mp3'),
+  254: require('./assets/audio/shadow_254.mp3'),
+  255: require('./assets/audio/shadow_255.mp3'),
+  256: require('./assets/audio/shadow_256.mp3'),
+  257: require('./assets/audio/shadow_257.mp3'),
+  258: require('./assets/audio/shadow_258.mp3'),
+  259: require('./assets/audio/shadow_259.mp3'),
+  260: require('./assets/audio/shadow_260.mp3'),
+  261: require('./assets/audio/shadow_261.mp3'),
+  262: require('./assets/audio/shadow_262.mp3'),
+  263: require('./assets/audio/shadow_263.mp3'),
+  264: require('./assets/audio/shadow_264.mp3'),
+  265: require('./assets/audio/shadow_265.mp3'),
+  266: require('./assets/audio/shadow_266.mp3'),
+  267: require('./assets/audio/shadow_267.mp3'),
+  268: require('./assets/audio/shadow_268.mp3'),
+  269: require('./assets/audio/shadow_269.mp3'),
+  270: require('./assets/audio/shadow_270.mp3'),
+  271: require('./assets/audio/shadow_271.mp3'),
+  272: require('./assets/audio/shadow_272.mp3'),
+  273: require('./assets/audio/shadow_273.mp3'),
+  274: require('./assets/audio/shadow_274.mp3'),
+  275: require('./assets/audio/shadow_275.mp3'),
+  276: require('./assets/audio/shadow_276.mp3'),
+  277: require('./assets/audio/shadow_277.mp3'),
+  278: require('./assets/audio/shadow_278.mp3'),
+  279: require('./assets/audio/shadow_279.mp3'),
+  280: require('./assets/audio/shadow_280.mp3'),
+  281: require('./assets/audio/shadow_281.mp3'),
+  282: require('./assets/audio/shadow_282.mp3'),
+  283: require('./assets/audio/shadow_283.mp3'),
+  284: require('./assets/audio/shadow_284.mp3'),
+  285: require('./assets/audio/shadow_285.mp3'),
+  286: require('./assets/audio/shadow_286.mp3'),
+  287: require('./assets/audio/shadow_287.mp3'),
+  288: require('./assets/audio/shadow_288.mp3'),
+  289: require('./assets/audio/shadow_289.mp3'),
+  290: require('./assets/audio/shadow_290.mp3'),
+  291: require('./assets/audio/shadow_291.mp3'),
+  292: require('./assets/audio/shadow_292.mp3'),
+  293: require('./assets/audio/shadow_293.mp3'),
+  294: require('./assets/audio/shadow_294.mp3'),
+  295: require('./assets/audio/shadow_295.mp3'),
+  296: require('./assets/audio/shadow_296.mp3'),
+  297: require('./assets/audio/shadow_297.mp3'),
+  298: require('./assets/audio/shadow_298.mp3'),
+  299: require('./assets/audio/shadow_299.mp3'),
+  300: require('./assets/audio/shadow_300.mp3'),
+};
 
 function shuffle(arr) {
   const a = [...arr];
@@ -69,7 +375,33 @@ export default function App() {
   const cancelledRef = useRef(false);
   const pausedRef = useRef(false);
   const isReadyRef = useRef(false);
+  const soundRef = useRef(null);
 
+  // ── Setup Audio come podcast player ──────────────────────────────
+  useEffect(() => {
+    const setupAudio = async () => {
+      try {
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          staysActiveInBackground: true,
+          playsInSilentModeIOS: true,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+          // Questo è il flag chiave per comportarsi come podcast/musica
+          interruptionModeIOS: 1,
+          interruptionModeAndroid: 1,
+        });
+      } catch (e) {}
+    };
+    setupAudio();
+    return () => {
+      if (soundRef.current) {
+        soundRef.current.unloadAsync().catch(() => {});
+      }
+    };
+  }, []);
+
+  // ── Permesso microfono ────────────────────────────────────────────
   useEffect(() => {
     const requestMic = async () => {
       if (Platform.OS === 'android') {
@@ -85,6 +417,7 @@ export default function App() {
     requestMic();
   }, []);
 
+  // ── Voice recognition ─────────────────────────────────────────────
   useEffect(() => {
     Voice.onSpeechResults = (e) => {
       if (cancelledRef.current || pausedRef.current) return;
@@ -168,6 +501,16 @@ export default function App() {
   };
   const stopPulse = () => { pulseAnim.stopAnimation(); pulseAnim.setValue(1); };
 
+  const stopSound = useCallback(async () => {
+    if (soundRef.current) {
+      try {
+        await soundRef.current.stopAsync();
+        await soundRef.current.unloadAsync();
+      } catch (e) {}
+      soundRef.current = null;
+    }
+  }, []);
+
   const stopAll = useCallback(() => {
     cancelledRef.current = true;
     clearTimeout(revealRef.current);
@@ -177,8 +520,9 @@ export default function App() {
     clearTimeout(shadowTimerRef.current);
     try { Voice.cancel(); } catch (e) {}
     Speech.stop();
+    stopSound();
     stopPulse();
-  }, []);
+  }, [stopSound]);
 
   const startReadCard = useCallback(() => {
     clearTimeout(revealRef.current);
@@ -190,39 +534,64 @@ export default function App() {
     revealRef.current = setTimeout(() => setShown(true), 3000);
   }, []);
 
-  const startShadowCard = useCallback((sentence) => {
+  // ── Shadow mode con expo-av MP3 — comportamento podcast ──────────
+  const startShadowCard = useCallback(async (sentence) => {
+    if (cancelledRef.current || pausedRef.current) return;
     cancelledRef.current = false;
     clearTimeout(shadowTimerRef.current);
-    setShadowPhase('speaking');
-    Speech.stop();
-    Speech.speak(sentence.en, {
-      language: 'en-US', rate: 0.82,
-      onDone: () => {
-        if (cancelledRef.current || pausedRef.current) return;
-        setShadowPhase('waiting');
-        shadowTimerRef.current = setTimeout(() => {
+
+    const audioSource = AUDIO_FILES[sentence.id];
+    if (!audioSource) {
+      setShadowIdx(p => p < shadowDeck.length - 1 ? p + 1 : p);
+      return;
+    }
+
+    try {
+      await stopSound();
+      setShadowPhase('speaking');
+
+      const { sound } = await Audio.Sound.createAsync(
+        audioSource,
+        { shouldPlay: true, volume: 1.0 }
+      );
+      soundRef.current = sound;
+
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (!status.isLoaded) return;
+        if (status.didJustFinish) {
           if (cancelledRef.current || pausedRef.current) return;
-          setShadowPhase('repeating');
-          Speech.speak(sentence.en, {
-            language: 'en-US', rate: 0.82,
-            onDone: () => {
-              if (cancelledRef.current || pausedRef.current) return;
-              shadowTimerRef.current = setTimeout(() => {
-                if (cancelledRef.current || pausedRef.current) return;
-                setShadowPhase('idle');
-                setShadowIdx(p => p < shadowDeck.length - 1 ? p + 1 : p);
-              }, 2000);
-            },
-            onError: () => { setShadowIdx(p => p < shadowDeck.length - 1 ? p + 1 : p); }
-          });
-        }, 5000);
-      },
-      onError: () => {
-        if (cancelledRef.current || pausedRef.current) return;
-        setShadowIdx(p => p < shadowDeck.length - 1 ? p + 1 : p);
-      }
-    });
-  }, [shadowDeck]);
+          setShadowPhase('waiting');
+          shadowTimerRef.current = setTimeout(async () => {
+            if (cancelledRef.current || pausedRef.current) return;
+            setShadowPhase('repeating');
+            try {
+              await stopSound();
+              const { sound: sound2 } = await Audio.Sound.createAsync(
+                audioSource,
+                { shouldPlay: true, volume: 1.0 }
+              );
+              soundRef.current = sound2;
+              sound2.setOnPlaybackStatusUpdate((s2) => {
+                if (!s2.isLoaded) return;
+                if (s2.didJustFinish) {
+                  if (cancelledRef.current || pausedRef.current) return;
+                  shadowTimerRef.current = setTimeout(() => {
+                    if (cancelledRef.current || pausedRef.current) return;
+                    setShadowPhase('idle');
+                    setShadowIdx(p => p < shadowDeck.length - 1 ? p + 1 : p);
+                  }, 2000);
+                }
+              });
+            } catch (e) {
+              setShadowIdx(p => p < shadowDeck.length - 1 ? p + 1 : p);
+            }
+          }, 5000);
+        }
+      });
+    } catch (e) {
+      setShadowIdx(p => p < shadowDeck.length - 1 ? p + 1 : p);
+    }
+  }, [shadowDeck, stopSound]);
 
   const goNext = useCallback(() => {
     animateOut(() => setIdx(prev => prev + 1 < deck.length ? prev + 1 : prev));
