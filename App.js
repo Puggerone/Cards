@@ -1,17 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
-  Animated, StatusBar, Platform, Alert, PermissionsAndroid
+  Animated, StatusBar, Platform, Alert, PermissionsAndroid, AppState
 } from 'react-native';
 import * as Speech from 'expo-speech';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import Voice from '@react-native-voice/voice';
-import TrackPlayer, {
-  Capability,
-  Event,
-  useTrackPlayerEvents,
-} from 'react-native-track-player';
+import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 import CARDS from './src/cards';
 import SHADOW from './src/shadowing';
 
@@ -25,11 +22,6 @@ const TAG_COLORS = {
   'phrasal-b2': { text:'#e879f9', bg:'rgba(232,121,249,0.15)',border:'rgba(232,121,249,0.3)' },
 };
 const TAG_LABELS = { a2:'A2', b1:'B1', b2:'B2', 'phrasal-b1':'Phrasal B1', 'phrasal-b2':'Phrasal B2' };
-
-function getAudioUrl(id) {
-  const num = String(id).padStart(3, '0');
-  return `asset:/audio/shadow_${num}.mp3`;
-}
 
 function shuffle(arr) {
   const a = [...arr];
@@ -46,16 +38,6 @@ function checkAnswer(heard, expected) {
   if (h === e) return true;
   const words = e.split(' ').filter(w => w.length > 2);
   return words.some(w => h.includes(w));
-}
-
-function deckToTracks(deck) {
-  return deck.map(s => ({
-    id: String(s.id),
-    url: getAudioUrl(s.id),
-    title: s.en,
-    artist: 'Cards Shadow',
-    album: s.tag === 'phrasal-a2' ? 'A2' : s.tag === 'phrasal-b1' ? 'B1' : 'B2',
-  }));
 }
 
 export default function App() {
@@ -78,7 +60,6 @@ export default function App() {
   const [shadowDeck, setShadowDeck] = useState(SHADOW);
   const [shadowIdx, setShadowIdx] = useState(0);
   const [shadowPhase, setShadowPhase] = useState('idle');
-  const [rntrReady, setRntpReady] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -91,79 +72,46 @@ export default function App() {
   const cancelledRef = useRef(false);
   const pausedRef = useRef(false);
   const isReadyRef = useRef(false);
+  const soundRef = useRef(null);
+  const appStateRef = useRef(AppState.currentState);
 
-  // ── Setup RNTP v3 — dentro useEffect, non globale ────────────────
+  // ── Audio session — si registra come player audio del sistema ────
   useEffect(() => {
-    let mounted = true;
-    const setup = async () => {
+    const setupAudio = async () => {
       try {
-        await TrackPlayer.setupPlayer({
-          waitForBuffer: true,
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          staysActiveInBackground: true,
+          playsInSilentModeIOS: true,
+          shouldDuckAndroid: false,
+          playThroughEarpieceAndroid: false,
         });
-        await TrackPlayer.updateOptions({
-          stopWithApp: false,
-          capabilities: [
-            Capability.Play,
-            Capability.Pause,
-            Capability.SkipToNext,
-            Capability.SkipToPrevious,
-            Capability.Stop,
-          ],
-          compactCapabilities: [
-            Capability.Play,
-            Capability.Pause,
-            Capability.SkipToNext,
-          ],
-        });
-        if (mounted) setRntpReady(true);
-      } catch (e) {
-        // Player già inizializzato — va bene
-        if (mounted) setRntpReady(true);
-      }
+      } catch (e) {}
     };
-    setup();
+    setupAudio();
     return () => {
-      mounted = false;
-      TrackPlayer.reset().catch(() => {});
+      if (soundRef.current) {
+        soundRef.current.unloadAsync().catch(() => {});
+      }
     };
   }, []);
 
-  // ── Listener RNTP: fine traccia → pausa 5s → replay ─────────────
-  useTrackPlayerEvents([Event.PlaybackTrackChanged], async (event) => {
-    if (!event.nextTrack && event.nextTrack !== 0) return;
-    if (pausedRef.current || cancelledRef.current) return;
-    setShadowPhase('waiting');
-    shadowTimerRef.current = setTimeout(async () => {
-      if (pausedRef.current || cancelledRef.current) return;
-      setShadowPhase('repeating');
-      try {
-        const currentIdx = await TrackPlayer.getCurrentTrack();
-        const replayIdx = (currentIdx != null && currentIdx > 0) ? currentIdx - 1 : 0;
-        await TrackPlayer.skip(replayIdx);
-        await TrackPlayer.play();
-      } catch (e) {}
-    }, 5000);
-  });
+  // ── AppState: riprendi se torna in foreground ─────────────────────
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', nextState => {
+      if (appStateRef.current.match(/inactive|background/) && nextState === 'active') {
+        if (mode === 'shadow' && !pausedRef.current && shadowPhase === 'idle') {
+          cancelledRef.current = false;
+          const sentence = shadowDeck[shadowIdx];
+          if (sentence) startShadowCard(sentence);
+        }
+      }
+      appStateRef.current = nextState;
+    });
+    return () => sub.remove();
+  }, [mode, shadowPhase, shadowIdx, shadowDeck]);
 
-  // ── Listener avanzamento traccia → aggiorna UI ───────────────────
-  useTrackPlayerEvents([Event.PlaybackActiveTrackChanged], async () => {
-    try {
-      const i = await TrackPlayer.getCurrentTrack();
-      if (i != null) setShadowIdx(i);
-      setShadowPhase('speaking');
-    } catch (e) {}
-  });
-
-  const loadDeckInRNTP = useCallback(async (d, startIdx = 0) => {
-    if (!rntrReady) return;
-    try {
-      await TrackPlayer.reset();
-      await TrackPlayer.add(deckToTracks(d));
-      if (startIdx > 0) await TrackPlayer.skip(startIdx);
-    } catch (e) { console.log('RNTP load:', e); }
-  }, [rntrReady]);
-
-  // ── Permesso microfono ────────────────────────────────────────────
+  // ── Microfono ─────────────────────────────────────────────────────
   useEffect(() => {
     const requestMic = async () => {
       if (Platform.OS === 'android') {
@@ -259,6 +207,17 @@ export default function App() {
   };
   const stopPulse = () => { pulseAnim.stopAnimation(); pulseAnim.setValue(1); };
 
+  // ── Stop audio ────────────────────────────────────────────────────
+  const stopSound = useCallback(async () => {
+    if (soundRef.current) {
+      try {
+        await soundRef.current.stopAsync();
+        await soundRef.current.unloadAsync();
+      } catch (e) {}
+      soundRef.current = null;
+    }
+  }, []);
+
   const stopAll = useCallback(() => {
     cancelledRef.current = true;
     clearTimeout(revealRef.current);
@@ -268,13 +227,9 @@ export default function App() {
     clearTimeout(shadowTimerRef.current);
     try { Voice.cancel(); } catch (e) {}
     Speech.stop();
+    stopSound();
     stopPulse();
-  }, []);
-
-  const stopShadow = useCallback(() => {
-    stopAll();
-    TrackPlayer.pause().catch(() => {});
-  }, [stopAll]);
+  }, [stopSound]);
 
   const startReadCard = useCallback(() => {
     clearTimeout(revealRef.current);
@@ -286,18 +241,83 @@ export default function App() {
     revealRef.current = setTimeout(() => setShown(true), 3000);
   }, []);
 
-  // ── Shadow: carica RNTP e avvia ───────────────────────────────────
-  useEffect(() => {
-    if (mode !== 'shadow' || !rntrReady) return;
+  // ── Shadow mode con expo-av + URI dinamico ────────────────────────
+  // Usa expo-file-system per leggere i MP3 dal bundle senza require()
+  const startShadowCard = useCallback(async (sentence) => {
+    if (cancelledRef.current || pausedRef.current) return;
     cancelledRef.current = false;
-    loadDeckInRNTP(shadowDeck, 0).then(() => {
-      if (!pausedRef.current) {
-        setShadowPhase('speaking');
-        TrackPlayer.play().catch(() => {});
-      }
-    });
-    return () => { TrackPlayer.pause().catch(() => {}); };
-  }, [mode, rntrReady, shadowDeck]); // eslint-disable-line
+    clearTimeout(shadowTimerRef.current);
+    setShadowPhase('speaking');
+
+    const num = String(sentence.id).padStart(3, '0');
+    const assetUri = `${FileSystem.bundleDirectory}assets/audio/shadow_${num}.mp3`;
+
+    try {
+      await stopSound();
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: assetUri },
+        { shouldPlay: true, volume: 1.0 }
+      );
+      soundRef.current = sound;
+
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (!status.isLoaded) return;
+        if (status.didJustFinish) {
+          if (cancelledRef.current || pausedRef.current) return;
+          setShadowPhase('waiting');
+          shadowTimerRef.current = setTimeout(async () => {
+            if (cancelledRef.current || pausedRef.current) return;
+            setShadowPhase('repeating');
+            try {
+              await stopSound();
+              const { sound: sound2 } = await Audio.Sound.createAsync(
+                { uri: assetUri },
+                { shouldPlay: true, volume: 1.0 }
+              );
+              soundRef.current = sound2;
+              sound2.setOnPlaybackStatusUpdate((s2) => {
+                if (!s2.isLoaded) return;
+                if (s2.didJustFinish) {
+                  if (cancelledRef.current || pausedRef.current) return;
+                  shadowTimerRef.current = setTimeout(() => {
+                    if (cancelledRef.current || pausedRef.current) return;
+                    setShadowPhase('idle');
+                    setShadowIdx(p => p < shadowDeck.length - 1 ? p + 1 : p);
+                  }, 2000);
+                }
+              });
+            } catch (e) {
+              setShadowIdx(p => p < shadowDeck.length - 1 ? p + 1 : p);
+            }
+          }, 5000);
+        }
+      });
+    } catch (e) {
+      // Fallback: expo-speech se il file non si carica
+      Speech.speak(sentence.en, {
+        language: 'en-US', rate: 0.82,
+        onDone: () => {
+          if (cancelledRef.current || pausedRef.current) return;
+          setShadowPhase('waiting');
+          shadowTimerRef.current = setTimeout(() => {
+            if (cancelledRef.current || pausedRef.current) return;
+            setShadowPhase('repeating');
+            Speech.speak(sentence.en, {
+              language: 'en-US', rate: 0.82,
+              onDone: () => {
+                if (cancelledRef.current || pausedRef.current) return;
+                shadowTimerRef.current = setTimeout(() => {
+                  if (cancelledRef.current || pausedRef.current) return;
+                  setShadowPhase('idle');
+                  setShadowIdx(p => p < shadowDeck.length - 1 ? p + 1 : p);
+                }, 2000);
+              },
+            });
+          }, 5000);
+        },
+      });
+    }
+  }, [shadowDeck, stopSound]);
 
   const goNext = useCallback(() => {
     animateOut(() => setIdx(prev => prev + 1 < deck.length ? prev + 1 : prev));
@@ -398,6 +418,15 @@ export default function App() {
   }, [deck, idx]); // eslint-disable-line
 
   useEffect(() => {
+    if (mode !== 'shadow') return;
+    if (pausedRef.current) return;
+    cancelledRef.current = false;
+    const sentence = shadowDeck[shadowIdx];
+    if (sentence) startShadowCard(sentence);
+    return () => { stopAll(); };
+  }, [shadowIdx, shadowDeck]); // eslint-disable-line
+
+  useEffect(() => {
     if (mode === 'shadow') return;
     if (pausedRef.current) return;
     cancelledRef.current = false; stopAll();
@@ -411,7 +440,6 @@ export default function App() {
   const switchMode = (m) => {
     if (m === 'voice' && useMic && !micPermission) Alert.alert('Microfono', 'Permesso microfono non concesso.');
     stopAll();
-    TrackPlayer.pause().catch(() => {});
     pausedRef.current = false; setPaused(false); cancelledRef.current = false;
     setShadowPhase('idle'); setMode(m);
     if (m === 'shadow') setShadowIdx(0);
@@ -474,23 +502,21 @@ export default function App() {
         {mode === 'shadow' && (
           <View style={s.voiceOpts}>
             {['all', 'phrasal-a2', 'phrasal-b1', 'phrasal-b2'].map(f => (
-              <TouchableOpacity key={f} onPress={async () => {
+              <TouchableOpacity key={f} onPress={() => {
                 const filtered = f === 'all' ? SHADOW : SHADOW.filter(x => x.tag === f);
-                stopShadow(); cancelledRef.current = false;
+                stopAll(); cancelledRef.current = false;
                 setShadowDeck(filtered); setShadowFilter(f); setShadowIdx(0);
-                await loadDeckInRNTP(filtered, 0);
-                if (!pausedRef.current) { setShadowPhase('speaking'); TrackPlayer.play().catch(() => {}); }
               }} style={[s.optBtn, shadowFilter === f && { borderColor: '#0891b2', backgroundColor: 'rgba(8,145,178,0.1)' }]}>
                 <Text style={[s.optTxt, shadowFilter === f && { color: '#0891b2' }]}>
                   {f === 'all' ? 'Tutte' : f === 'phrasal-a2' ? 'A2' : f === 'phrasal-b1' ? 'B1' : 'B2'}
                 </Text>
               </TouchableOpacity>
             ))}
-            <TouchableOpacity onPress={async () => {
+            <TouchableOpacity onPress={() => {
               const np = !pausedRef.current;
               pausedRef.current = np; setPaused(np);
-              if (np) { stopShadow(); setShadowPhase('paused'); }
-              else { cancelledRef.current = false; setShadowPhase('speaking'); await TrackPlayer.play(); }
+              if (np) { stopAll(); setShadowPhase('paused'); }
+              else { cancelledRef.current = false; const sentence = shadowDeck[shadowIdx]; if (sentence) startShadowCard(sentence); }
             }} style={[s.optBtn, paused && { borderColor: '#f7c94f', backgroundColor: 'rgba(247,201,79,0.1)' }]}>
               <Text style={[s.optTxt, paused && { color: '#f7c94f' }]}>{paused ? '▶ Riprendi' : '⏸ Pausa'}</Text>
             </TouchableOpacity>
@@ -611,20 +637,12 @@ export default function App() {
       <View style={s.ctrlRow}>
         {mode === 'shadow' ? (
           <>
-            <TouchableOpacity onPress={async () => {
-              stopShadow(); cancelledRef.current = false;
-              const ni = Math.max(0, shadowIdx - 1);
-              setShadowIdx(ni);
-              await TrackPlayer.skip(ni);
-              if (!pausedRef.current) await TrackPlayer.play();
-            }} style={s.navBtn}><Text style={s.navTxt}>←</Text></TouchableOpacity>
-            <TouchableOpacity onPress={async () => {
-              stopShadow(); cancelledRef.current = false;
-              const ni = Math.min(shadowDeck.length - 1, shadowIdx + 1);
-              setShadowIdx(ni);
-              await TrackPlayer.skip(ni);
-              if (!pausedRef.current) await TrackPlayer.play();
-            }} style={s.navBtn}><Text style={s.navTxt}>→ Salta</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => { stopAll(); cancelledRef.current = false; setShadowIdx(p => Math.max(0, p - 1)); }} style={s.navBtn}>
+              <Text style={s.navTxt}>←</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => { stopAll(); cancelledRef.current = false; setShadowIdx(p => Math.min(shadowDeck.length - 1, p + 1)); }} style={s.navBtn}>
+              <Text style={s.navTxt}>→ Salta</Text>
+            </TouchableOpacity>
           </>
         ) : mode === 'read' ? (
           <>
