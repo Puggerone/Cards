@@ -1,3 +1,4 @@
+cat > /home/claude/App_rntp3_fix.js << 'EOF'
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
@@ -10,18 +11,12 @@ import Voice from '@react-native-voice/voice';
 import TrackPlayer, {
   Capability,
   Event,
-  State,
-  usePlaybackState,
   useTrackPlayerEvents,
 } from 'react-native-track-player';
-import { PlaybackService } from './service';
 import CARDS from './src/cards';
 import SHADOW from './src/shadowing';
 
 const APP_VERSION = '1.5';
-
-// Registra service RNTP v3
-TrackPlayer.registerPlaybackService(() => PlaybackService);
 
 const TAG_COLORS = {
   a2:           { text:'#4ff7a0', bg:'rgba(79,247,160,0.15)',  border:'rgba(79,247,160,0.3)' },
@@ -32,7 +27,6 @@ const TAG_COLORS = {
 };
 const TAG_LABELS = { a2:'A2', b1:'B1', b2:'B2', 'phrasal-b1':'Phrasal B1', 'phrasal-b2':'Phrasal B2' };
 
-// URL MP3 tramite asset:// — RNTP v3 li gestisce nativamente
 function getAudioUrl(id) {
   const num = String(id).padStart(3, '0');
   return `asset:/audio/shadow_${num}.mp3`;
@@ -98,15 +92,15 @@ export default function App() {
   const cancelledRef = useRef(false);
   const pausedRef = useRef(false);
   const isReadyRef = useRef(false);
-  const shadowDeckRef = useRef(SHADOW);
 
-  useEffect(() => { shadowDeckRef.current = shadowDeck; }, [shadowDeck]);
-
-  // ── Setup RNTP v3 ─────────────────────────────────────────────────
+  // ── Setup RNTP v3 — dentro useEffect, non globale ────────────────
   useEffect(() => {
+    let mounted = true;
     const setup = async () => {
       try {
-        await TrackPlayer.setupPlayer({});
+        await TrackPlayer.setupPlayer({
+          waitForBuffer: true,
+        });
         await TrackPlayer.updateOptions({
           stopWithApp: false,
           capabilities: [
@@ -122,18 +116,22 @@ export default function App() {
             Capability.SkipToNext,
           ],
         });
-        setRntpReady(true);
+        if (mounted) setRntpReady(true);
       } catch (e) {
-        console.log('RNTP setup error:', e);
+        // Player già inizializzato — va bene
+        if (mounted) setRntpReady(true);
       }
     };
     setup();
-    return () => { TrackPlayer.destroy().catch(() => {}); };
+    return () => {
+      mounted = false;
+      TrackPlayer.reset().catch(() => {});
+    };
   }, []);
 
-  // ── Listener RNTP: traccia finita → pausa 5s → replay → avanti ──
+  // ── Listener RNTP: fine traccia → pausa 5s → replay ─────────────
   useTrackPlayerEvents([Event.PlaybackTrackChanged], async (event) => {
-    if (event.nextTrack == null) return;
+    if (!event.nextTrack && event.nextTrack !== 0) return;
     if (pausedRef.current || cancelledRef.current) return;
     setShadowPhase('waiting');
     shadowTimerRef.current = setTimeout(async () => {
@@ -141,29 +139,29 @@ export default function App() {
       setShadowPhase('repeating');
       try {
         const currentIdx = await TrackPlayer.getCurrentTrack();
-        const replayIdx = currentIdx > 0 ? currentIdx - 1 : 0;
+        const replayIdx = (currentIdx != null && currentIdx > 0) ? currentIdx - 1 : 0;
         await TrackPlayer.skip(replayIdx);
         await TrackPlayer.play();
       } catch (e) {}
     }, 5000);
   });
 
-  // ── Listener avanzamento traccia → aggiorna UI ────────────────────
+  // ── Listener avanzamento traccia → aggiorna UI ───────────────────
   useTrackPlayerEvents([Event.PlaybackActiveTrackChanged], async () => {
     try {
-      const idx = await TrackPlayer.getCurrentTrack();
-      if (idx != null) setShadowIdx(idx);
+      const i = await TrackPlayer.getCurrentTrack();
+      if (i != null) setShadowIdx(i);
       setShadowPhase('speaking');
     } catch (e) {}
   });
 
-  const loadDeckInRNTP = useCallback(async (deck, startIdx = 0) => {
+  const loadDeckInRNTP = useCallback(async (d, startIdx = 0) => {
     if (!rntrReady) return;
     try {
       await TrackPlayer.reset();
-      await TrackPlayer.add(deckToTracks(deck));
+      await TrackPlayer.add(deckToTracks(d));
       if (startIdx > 0) await TrackPlayer.skip(startIdx);
-    } catch (e) {}
+    } catch (e) { console.log('RNTP load:', e); }
   }, [rntrReady]);
 
   // ── Permesso microfono ────────────────────────────────────────────
@@ -175,9 +173,7 @@ export default function App() {
           { title: 'Microfono', message: 'Cards usa il microfono per la modalità Voice.' }
         );
         setMicPermission(granted === PermissionsAndroid.RESULTS.GRANTED);
-      } else {
-        setMicPermission(true);
-      }
+      } else { setMicPermission(true); }
     };
     requestMic();
   }, []);
@@ -291,12 +287,12 @@ export default function App() {
     revealRef.current = setTimeout(() => setShown(true), 3000);
   }, []);
 
-  // ── Shadow: carica deck RNTP e avvia ─────────────────────────────
+  // ── Shadow: carica RNTP e avvia ───────────────────────────────────
   useEffect(() => {
     if (mode !== 'shadow' || !rntrReady) return;
+    cancelledRef.current = false;
     loadDeckInRNTP(shadowDeck, 0).then(() => {
       if (!pausedRef.current) {
-        cancelledRef.current = false;
         setShadowPhase('speaking');
         TrackPlayer.play().catch(() => {});
       }
@@ -415,7 +411,8 @@ export default function App() {
 
   const switchMode = (m) => {
     if (m === 'voice' && useMic && !micPermission) Alert.alert('Microfono', 'Permesso microfono non concesso.');
-    stopAll(); TrackPlayer.pause().catch(() => {});
+    stopAll();
+    TrackPlayer.pause().catch(() => {});
     pausedRef.current = false; setPaused(false); cancelledRef.current = false;
     setShadowPhase('idle'); setMode(m);
     if (m === 'shadow') setShadowIdx(0);
@@ -740,3 +737,5 @@ const s = StyleSheet.create({
   nrChip:      { paddingVertical:4, paddingHorizontal:10, borderRadius:20, backgroundColor:'rgba(239,68,68,0.08)', borderWidth:1, borderColor:'rgba(239,68,68,0.2)' },
   nrChipTxt:   { fontSize:11, color:'#f87171' },
 });
+EOF
+echo "done"
