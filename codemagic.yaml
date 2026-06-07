@@ -14,59 +14,24 @@ workflows:
       - name: Expo prebuild
         script: npx expo prebuild --platform android --non-interactive
 
-      - name: Mostra build.gradle generato
-        script: |
-          echo "=== build.gradle ==="
-          cat android/build.gradle
-          echo ""
-          echo "=== gradle-wrapper.properties ==="
-          cat android/gradle/wrapper/gradle-wrapper.properties
-          echo ""
-          echo "=== settings.gradle ==="
-          cat android/settings.gradle
-
-      - name: Fix AGP e Gradle
+      - name: Fix AGP 8.1.4 e Gradle 8.3
         script: |
           cd android
+          printf 'buildscript {\n    ext {\n        buildToolsVersion = "34.0.0"\n        minSdkVersion = 24\n        compileSdkVersion = 34\n        targetSdkVersion = 34\n        ndkVersion = "26.1.10909125"\n        kotlinVersion = "1.9.23"\n    }\n    repositories {\n        google()\n        mavenCentral()\n    }\n    dependencies {\n        classpath("com.android.tools.build:gradle:8.1.4")\n        classpath("com.facebook.react:react-native-gradle-plugin")\n        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.23")\n    }\n}\n\napply plugin: "com.facebook.react.rootproject"\n' > build.gradle
+          printf 'distributionBase=GRADLE_USER_HOME\ndistributionPath=wrapper/dists\ndistributionUrl=https\\://services.gradle.org/distributions/gradle-8.3-all.zip\nzipStoreBase=GRADLE_USER_HOME\nzipStorePath=wrapper/dists\n' > gradle/wrapper/gradle-wrapper.properties
 
-          # Riscrivi completamente build.gradle con AGP 8.1.4
-          cat > build.gradle << 'GRADLE'
-buildscript {
-    ext {
-        buildToolsVersion = "34.0.0"
-        minSdkVersion = 24
-        compileSdkVersion = 34
-        targetSdkVersion = 34
-        ndkVersion = "26.1.10909125"
-        kotlinVersion = "1.9.23"
-    }
-    repositories {
-        google()
-        mavenCentral()
-    }
-    dependencies {
-        classpath("com.android.tools.build:gradle:8.1.4")
-        classpath("com.facebook.react:react-native-gradle-plugin")
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.23")
-    }
-}
-
-apply plugin: "com.facebook.react.rootproject"
-GRADLE
-
-          # Fix gradle wrapper
-          cat > gradle/wrapper/gradle-wrapper.properties << 'PROPS'
-distributionBase=GRADLE_USER_HOME
-distributionPath=wrapper/dists
-distributionUrl=https\://services.gradle.org/distributions/gradle-8.3-all.zip
-zipStoreBase=GRADLE_USER_HOME
-zipStorePath=wrapper/dists
-PROPS
-
-          echo "=== build.gradle dopo fix ==="
-          cat build.gradle
-          echo "=== gradle wrapper dopo fix ==="
-          cat gradle/wrapper/gradle-wrapper.properties
+      - name: Fix settings.gradle - registra expo-module-gradle-plugin
+        script: |
+          cd android
+          # Aggiunge includeBuild per expo-modules-core se non presente
+          if ! grep -q "expo-modules-core" settings.gradle; then
+            echo "includeBuild('../node_modules/expo-modules-core/android')" >> settings.gradle
+            echo "Plugin expo-modules-core aggiunto a settings.gradle"
+          else
+            echo "expo-modules-core gia presente in settings.gradle"
+          fi
+          echo "=== settings.gradle finale ==="
+          cat settings.gradle
 
       - name: Build APK
         script: |
