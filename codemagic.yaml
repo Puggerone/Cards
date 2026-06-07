@@ -5,8 +5,8 @@ workflows:
     environment:
       node: 18.0.0
       java: 17
-      vars:
-        EXPO_TOKEN: $EXPO_TOKEN
+      groups:
+        - default
     scripts:
       - name: Installa dipendenze
         script: npm install
