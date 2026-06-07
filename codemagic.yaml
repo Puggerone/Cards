@@ -19,18 +19,14 @@ workflows:
           cd android
           printf 'buildscript {\n    ext {\n        buildToolsVersion = "34.0.0"\n        minSdkVersion = 24\n        compileSdkVersion = 34\n        targetSdkVersion = 34\n        ndkVersion = "26.1.10909125"\n        kotlinVersion = "1.9.23"\n    }\n    repositories {\n        google()\n        mavenCentral()\n    }\n    dependencies {\n        classpath("com.android.tools.build:gradle:8.1.4")\n        classpath("com.facebook.react:react-native-gradle-plugin")\n        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.23")\n    }\n}\n\napply plugin: "com.facebook.react.rootproject"\n' > build.gradle
           printf 'distributionBase=GRADLE_USER_HOME\ndistributionPath=wrapper/dists\ndistributionUrl=https\\://services.gradle.org/distributions/gradle-8.3-all.zip\nzipStoreBase=GRADLE_USER_HOME\nzipStorePath=wrapper/dists\n' > gradle/wrapper/gradle-wrapper.properties
+          echo "=== build.gradle ==="
+          cat build.gradle
 
-      - name: Fix settings.gradle - registra expo-module-gradle-plugin
+      - name: Rimuovi includeBuild expo-modules-core da settings.gradle
         script: |
           cd android
-          # Aggiunge includeBuild per expo-modules-core se non presente
-          if ! grep -q "expo-modules-core" settings.gradle; then
-            echo "includeBuild('../node_modules/expo-modules-core/android')" >> settings.gradle
-            echo "Plugin expo-modules-core aggiunto a settings.gradle"
-          else
-            echo "expo-modules-core gia presente in settings.gradle"
-          fi
-          echo "=== settings.gradle finale ==="
+          sed -i "/includeBuild.*expo-modules-core/d" settings.gradle
+          echo "=== settings.gradle ==="
           cat settings.gradle
 
       - name: Build APK
