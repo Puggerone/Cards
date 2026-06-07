@@ -14,6 +14,25 @@ workflows:
       - name: Expo prebuild
         script: npx expo prebuild --platform android --non-interactive
 
+      - name: Fix AGP versione compatibile Expo SDK 51
+        script: |
+          cd android
+          
+          # Il problema: expo-modules-core usa components.release rimosso in AGP 8.2+
+          # Soluzione: forzare AGP 8.1.4 che Ã¨ l'ultima versione compatibile
+          
+          # Fix build.gradle root - forza AGP 8.1.4
+          sed -i 's/com\.android\.tools\.build:gradle:[0-9."]*/com.android.tools.build:gradle:8.1.4/g' build.gradle
+          
+          # Fix gradle wrapper - usa gradle 8.3 compatibile con AGP 8.1.4
+          sed -i 's|distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.3-all.zip|' gradle/wrapper/gradle-wrapper.properties
+          
+          # Verifica
+          echo "=== build.gradle AGP version ==="
+          grep "com.android.tools.build" build.gradle
+          echo "=== gradle wrapper ==="
+          grep "distributionUrl" gradle/wrapper/gradle-wrapper.properties
+
       - name: Build APK
         script: |
           cd android
