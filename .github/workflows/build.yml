@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -16,7 +18,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+
+      - name: Installa dipendenze
+        run: npm install
+
+      - name: Genera package-lock.json
+        run: npm install --package-lock-only
 
       - name: Setup Expo e EAS
         uses: expo/expo-github-action@v8
@@ -24,9 +31,6 @@ jobs:
           expo-version: latest
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Installa dipendenze
-        run: npm install
 
       - name: Build APK Android
         run: eas build --platform android --profile preview --non-interactive
