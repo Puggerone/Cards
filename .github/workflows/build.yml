@@ -1,0 +1,62 @@
+Perfetto. Creo il file di configurazione e ti spiego tutto passo per passo.
+
+---
+
+## Guida passo per passo
+
+### PASSO 1 — Ottieni il token Expo
+
+1. Vai su **expo.dev** dal browser
+2. Clicca sulla tua foto in alto a destra → **Account settings**
+3. Scorri fino a **Access tokens**
+4. Clicca **Create token**
+5. Nome: `github_actions`
+6. **Copia il token** — lo vedrai solo una volta
+
+---
+
+### PASSO 2 — Aggiungi il token su GitHub
+
+1. Vai su **github.com** → repo **Puggerone/Cards**
+2. Clicca **Settings** (in alto nel repo)
+3. Nel menu a sinistra → **Secrets and variables** → **Actions**
+4. Clicca **New repository secret**
+5. Name: `EXPO_TOKEN`
+6. Secret: incolla il token copiato prima
+7. Clicca **Add secret**
+
+---
+
+### PASSO 3 — Carica il file nel repo
+
+Su GitHub mobile:
+1. Vai nella root del repo
+2. Clicca **+** → **Create new file**
+3. Nel campo nome scrivi esattamente: `.github/workflows/build.yml`
+4. GitHub creerà automaticamente le cartelle
+5. Incolla il contenuto del file `build.yml` scaricato
+6. Commit
+
+---
+
+### PASSO 4 — Come avviare un build
+
+**Automatico:** ogni volta che fai un commit su `main`, il build parte da solo.
+
+**Manuale:**
+1. Vai su github.com → repo Cards
+2. Clicca **Actions** (in alto)
+3. Clicca **Build Android APK**
+4. Clicca **Run workflow** → **Run workflow**
+
+---
+
+### PASSO 5 — Dove scaricare l'APK
+
+Il build viene comunque eseguito su EAS (i server di Expo) — GitHub Actions lo avvia automaticamente. L'APK si scarica da **expo.dev** come prima, ma non devi più aprire expo.dev per avviarlo — ci pensa GitHub ad ogni commit.
+
+---
+
+## Vantaggio principale
+
+Ogni volta che aggiorni un file nel repo e fai commit → il build parte automaticamente → dopo ~5 minuti l'APK è pronto su expo.dev. Zero click su expo.dev per avviare.
