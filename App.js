@@ -166,7 +166,7 @@ export default function App() {
         const pos = await AsyncStorage.getItem('position');
         if (pos) {
           const { filterSaved, idxSaved, shuffledSaved, modeSaved, shadowIdxSaved, shadowFilterSaved } = JSON.parse(pos);
-          if (idxSaved > 0 || filterSaved !== 'all' || shuffledSaved || (modeSaved === 'shadow' && shadowIdxSaved > 0) || modeSaved === 'shadow' || modeSaved === 'voice') {
+          if (idxSaved > 0 || filterSaved !== 'all' || shuffledSaved || modeSaved === 'shadow' || modeSaved === 'voice') {
             const alertMsg = modeSaved === 'shadow'
               ? `Vuoi riprendere lo Shadow dalla frase ${(shadowIdxSaved || 0) + 1}?`
               : modeSaved === 'voice'
@@ -181,16 +181,18 @@ export default function App() {
                   setDeck(restoredDeck);
                   setIdx(Math.min(idxSaved, restoredDeck.length - 1));
                   if (modeSaved === 'shadow') {
-                    // Fix problema 3: imposta ref PRIMA di cambiare deck/mode
+                    const targetShadowIdx = (shadowIdxSaved !== undefined && shadowIdxSaved !== null) ? shadowIdxSaved : 0;
+                    // Imposta ref E state — la ref gestisce il batch update
+                    // lo state assicura che il progresso sia corretto dopo
+                    restoreShadowIdxRef.current = targetShadowIdx;
                     isRestoringRef.current = true;
-                    if (shadowIdxSaved) restoreShadowIdxRef.current = shadowIdxSaved;
-                    if (shadowFilterSaved) {
+                    setShadowIdx(targetShadowIdx);
+                    if (shadowFilterSaved && shadowFilterSaved !== 'all') {
                       setShadowFilter(shadowFilterSaved);
-                      const filtered = shadowFilterSaved === 'all'
-                        ? SHADOW
-                        : SHADOW.filter(x => x.tag === shadowFilterSaved);
-                      setShadowDeck(filtered);
+                      const filtered = SHADOW.filter(x => x.tag === shadowFilterSaved);
+                      setShadowDeck(filtered.length ? filtered : SHADOW);
                     } else {
+                      setShadowFilter('all');
                       setShadowDeck(SHADOW);
                     }
                     setMode('shadow');
@@ -210,8 +212,9 @@ export default function App() {
   }, []);
 
   useEffect(() => { AsyncStorage.setItem('nr_list', JSON.stringify(notRemembered)).catch(() => {}); }, [notRemembered]);
-  useEffect(() => {
-    if (!isReadyRef.current) return;
+  // Salva posizione ogni volta che cambia qualcosa di rilevante
+  // Nessun blocco isReadyRef — il salvataggio avviene sempre
+  const savePosition = useCallback(() => {
     AsyncStorage.setItem('position', JSON.stringify({
       filterSaved: filter,
       idxSaved: idx,
@@ -220,7 +223,12 @@ export default function App() {
       shadowIdxSaved: shadowIdx,
       shadowFilterSaved: shadowFilter,
     })).catch(() => {});
-  }, [idx, filter, isShuffled, mode, shadowIdx, shadowFilter]);
+  }, [filter, idx, isShuffled, mode, shadowIdx, shadowFilter]);
+
+  useEffect(() => {
+    if (!isReadyRef.current) return;
+    savePosition();
+  }, [idx, filter, isShuffled, mode, shadowIdx, shadowFilter]); // eslint-disable-line
 
   const applyFilter = (f) => { setFilter(f); setDeck(buildDeck(f, isShuffled, notRemembered)); setIdx(0); };
 
@@ -459,19 +467,18 @@ export default function App() {
     if (mode !== 'shadow') return;
     if (pausedRef.current) return;
     cancelledRef.current = false;
-    // Fix ripristino: se stiamo ripristinando, usa l'indice salvato
-    // isRestoringRef rimane true fino a quando l'useEffect si attiva
-    // con shadowDeck E mode già aggiornati insieme
-    let targetIdx = shadowIdx;
+    // Usa sempre shadowIdx — è già stato impostato correttamente
+    // restoreShadowIdxRef serve solo come flag per evitare doppi avvii
     if (restoreShadowIdxRef.current !== null) {
-      targetIdx = restoreShadowIdxRef.current;
-      // Azzera solo se isRestoring è false — cioè tutti gli state sono già sincronizzati
-      if (!isRestoringRef.current) {
-        restoreShadowIdxRef.current = null;
+      if (isRestoringRef.current) {
+        // Primo trigger del batch — aspetta il secondo
+        isRestoringRef.current = false;
+        return;
       }
-      isRestoringRef.current = false;
+      // Secondo trigger — ora tutti gli state sono sincronizzati
+      restoreShadowIdxRef.current = null;
     }
-    const sentence = shadowDeck[targetIdx];
+    const sentence = shadowDeck[shadowIdx];
     if (sentence) {
       startShadowCard(sentence);
     }
@@ -492,10 +499,25 @@ export default function App() {
   const switchMode = (m) => {
     if (m === 'voice' && useMic && !micPermission) Alert.alert('Microfono', 'Permesso microfono non concesso.');
     stopAll();
+    // Salva la posizione del mode CORRENTE (prima del cambio).
+    // `mode` qui è ancora il valore attuale — es. 'shadow' se stiamo uscendo da shadow.
+    // Questo garantisce che alla riapertura l'alert mostri il mode giusto.
+    // NON usare `m` (destinazione) — useremmo il mode sbagliato.
+    AsyncStorage.setItem('position', JSON.stringify({
+      filterSaved: filter,
+      idxSaved: idx,
+      shuffledSaved: isShuffled,
+      modeSaved: mode,        // mode corrente, non `m` (destinazione)
+      shadowIdxSaved: shadowIdx,
+      shadowFilterSaved: shadowFilter,
+    })).catch(() => {});
     pausedRef.current = false; setPaused(false); cancelledRef.current = false;
     setShadowPhase('idle'); setMode(m);
-    if (m === 'shadow') setShadowIdx(0);
-    else setIdx(i => i);
+    if (m !== 'shadow') {
+      setIdx(i => i);
+    }
+    // shadowIdx NON viene resettato — mantiene la posizione corrente
+    // così se si torna in shadow, l'useEffect riparte dalla frase giusta
   };
 
   const card = deck[idx] || CARDS[0];
