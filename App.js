@@ -75,6 +75,7 @@ export default function App() {
   const soundRef = useRef(null);
   const appStateRef = useRef(AppState.currentState);
   const restoreShadowIdxRef = useRef(null); // fix ripristino shadow
+  const isRestoringRef = useRef(false); // true finché il ripristino non è completato
 
   // ── Audio session — si registra come player audio del sistema ────
   useEffect(() => {
@@ -165,8 +166,13 @@ export default function App() {
         const pos = await AsyncStorage.getItem('position');
         if (pos) {
           const { filterSaved, idxSaved, shuffledSaved, modeSaved, shadowIdxSaved, shadowFilterSaved } = JSON.parse(pos);
-          if (idxSaved > 0 || filterSaved !== 'all' || shuffledSaved || modeSaved === 'shadow' || modeSaved === 'voice') {
-            Alert.alert('Bentornato!', `Vuoi riprendere dalla carta ${idxSaved + 1}?`, [
+          if (idxSaved > 0 || filterSaved !== 'all' || shuffledSaved || (modeSaved === 'shadow' && shadowIdxSaved > 0) || modeSaved === 'shadow' || modeSaved === 'voice') {
+            const alertMsg = modeSaved === 'shadow'
+              ? `Vuoi riprendere lo Shadow dalla frase ${(shadowIdxSaved || 0) + 1}?`
+              : modeSaved === 'voice'
+              ? `Vuoi riprendere Voice dalla carta ${idxSaved + 1}?`
+              : `Vuoi riprendere dalla carta ${idxSaved + 1}?`;
+            Alert.alert('Bentornato!', alertMsg, [
               { text: 'Ricomincia', style: 'destructive', onPress: async () => { await AsyncStorage.removeItem('position'); isReadyRef.current = true; } },
               { text: 'Riprendi', onPress: () => {
                   const restoredDeck = buildDeck(filterSaved, shuffledSaved || false, parsedNR);
@@ -176,7 +182,7 @@ export default function App() {
                   setIdx(Math.min(idxSaved, restoredDeck.length - 1));
                   if (modeSaved === 'shadow') {
                     // Fix problema 3: imposta ref PRIMA di cambiare deck/mode
-                    // così l'useEffect shadow legge l'indice corretto
+                    isRestoringRef.current = true;
                     if (shadowIdxSaved) restoreShadowIdxRef.current = shadowIdxSaved;
                     if (shadowFilterSaved) {
                       setShadowFilter(shadowFilterSaved);
@@ -206,8 +212,15 @@ export default function App() {
   useEffect(() => { AsyncStorage.setItem('nr_list', JSON.stringify(notRemembered)).catch(() => {}); }, [notRemembered]);
   useEffect(() => {
     if (!isReadyRef.current) return;
-    AsyncStorage.setItem('position', JSON.stringify({ filterSaved: filter, idxSaved: idx, shuffledSaved: isShuffled, modeSaved: mode, shadowIdxSaved: shadowIdx, shadowFilterSaved: shadowFilter })).catch(() => {});
-  }, [idx, filter, isShuffled]);
+    AsyncStorage.setItem('position', JSON.stringify({
+      filterSaved: filter,
+      idxSaved: idx,
+      shuffledSaved: isShuffled,
+      modeSaved: mode,
+      shadowIdxSaved: shadowIdx,
+      shadowFilterSaved: shadowFilter,
+    })).catch(() => {});
+  }, [idx, filter, isShuffled, mode, shadowIdx, shadowFilter]);
 
   const applyFilter = (f) => { setFilter(f); setDeck(buildDeck(f, isShuffled, notRemembered)); setIdx(0); };
 
@@ -446,14 +459,20 @@ export default function App() {
     if (mode !== 'shadow') return;
     if (pausedRef.current) return;
     cancelledRef.current = false;
-    // Fix problema 3: se c'è un indice da ripristinare, usalo e resettalo
-    const targetIdx = restoreShadowIdxRef.current !== null
-      ? restoreShadowIdxRef.current
-      : shadowIdx;
-    restoreShadowIdxRef.current = null;
+    // Fix ripristino: se stiamo ripristinando, usa l'indice salvato
+    // isRestoringRef rimane true fino a quando l'useEffect si attiva
+    // con shadowDeck E mode già aggiornati insieme
+    let targetIdx = shadowIdx;
+    if (restoreShadowIdxRef.current !== null) {
+      targetIdx = restoreShadowIdxRef.current;
+      // Azzera solo se isRestoring è false — cioè tutti gli state sono già sincronizzati
+      if (!isRestoringRef.current) {
+        restoreShadowIdxRef.current = null;
+      }
+      isRestoringRef.current = false;
+    }
     const sentence = shadowDeck[targetIdx];
     if (sentence) {
-      // Fix problema 1 & 2: parte subito senza delay quando entra in shadow
       startShadowCard(sentence);
     }
     return () => { stopAll(); };
