@@ -74,6 +74,7 @@ export default function App() {
   const isReadyRef = useRef(false);
   const soundRef = useRef(null);
   const appStateRef = useRef(AppState.currentState);
+  const restoreShadowIdxRef = useRef(null); // fix ripristino shadow
 
   // ── Audio session — si registra come player audio del sistema ────
   useEffect(() => {
@@ -167,7 +168,31 @@ export default function App() {
           if (idxSaved > 0 || filterSaved !== 'all' || shuffledSaved || modeSaved === 'shadow' || modeSaved === 'voice') {
             Alert.alert('Bentornato!', `Vuoi riprendere dalla carta ${idxSaved + 1}?`, [
               { text: 'Ricomincia', style: 'destructive', onPress: async () => { await AsyncStorage.removeItem('position'); isReadyRef.current = true; } },
-              { text: 'Riprendi', onPress: () => { const restoredDeck = buildDeck(filterSaved, shuffledSaved || false, parsedNR); setFilter(filterSaved); setIsShuffled(shuffledSaved || false); setDeck(restoredDeck); setIdx(Math.min(idxSaved, restoredDeck.length - 1)); if (modeSaved) setMode(modeSaved); if (shadowIdxSaved) setShadowIdx(shadowIdxSaved); if (shadowFilterSaved) { setShadowFilter(shadowFilterSaved); const filtered = shadowFilterSaved === 'all' ? SHADOW : SHADOW.filter(x => x.tag === shadowFilterSaved); setShadowDeck(filtered); } isReadyRef.current = true; } },
+              { text: 'Riprendi', onPress: () => {
+                  const restoredDeck = buildDeck(filterSaved, shuffledSaved || false, parsedNR);
+                  setFilter(filterSaved);
+                  setIsShuffled(shuffledSaved || false);
+                  setDeck(restoredDeck);
+                  setIdx(Math.min(idxSaved, restoredDeck.length - 1));
+                  if (modeSaved === 'shadow') {
+                    // Fix problema 3: imposta ref PRIMA di cambiare deck/mode
+                    // così l'useEffect shadow legge l'indice corretto
+                    if (shadowIdxSaved) restoreShadowIdxRef.current = shadowIdxSaved;
+                    if (shadowFilterSaved) {
+                      setShadowFilter(shadowFilterSaved);
+                      const filtered = shadowFilterSaved === 'all'
+                        ? SHADOW
+                        : SHADOW.filter(x => x.tag === shadowFilterSaved);
+                      setShadowDeck(filtered);
+                    } else {
+                      setShadowDeck(SHADOW);
+                    }
+                    setMode('shadow');
+                  } else if (modeSaved === 'voice') {
+                    setMode('voice');
+                  }
+                  isReadyRef.current = true;
+                } },
             ]);
             return;
           }
@@ -421,10 +446,18 @@ export default function App() {
     if (mode !== 'shadow') return;
     if (pausedRef.current) return;
     cancelledRef.current = false;
-    const sentence = shadowDeck[shadowIdx];
-    if (sentence) startShadowCard(sentence);
+    // Fix problema 3: se c'è un indice da ripristinare, usalo e resettalo
+    const targetIdx = restoreShadowIdxRef.current !== null
+      ? restoreShadowIdxRef.current
+      : shadowIdx;
+    restoreShadowIdxRef.current = null;
+    const sentence = shadowDeck[targetIdx];
+    if (sentence) {
+      // Fix problema 1 & 2: parte subito senza delay quando entra in shadow
+      startShadowCard(sentence);
+    }
     return () => { stopAll(); };
-  }, [shadowIdx, shadowDeck]); // eslint-disable-line
+  }, [shadowIdx, shadowDeck, mode]); // eslint-disable-line
 
   useEffect(() => {
     if (mode === 'shadow') return;
