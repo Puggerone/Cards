@@ -163,11 +163,11 @@ export default function App() {
         if (saved) setNotRemembered(parsedNR);
         const pos = await AsyncStorage.getItem('position');
         if (pos) {
-          const { filterSaved, idxSaved, shuffledSaved } = JSON.parse(pos);
-          if (idxSaved > 0 || filterSaved !== 'all' || shuffledSaved) {
+          const { filterSaved, idxSaved, shuffledSaved, modeSaved, shadowIdxSaved, shadowFilterSaved } = JSON.parse(pos);
+          if (idxSaved > 0 || filterSaved !== 'all' || shuffledSaved || modeSaved === 'shadow' || modeSaved === 'voice') {
             Alert.alert('Bentornato!', `Vuoi riprendere dalla carta ${idxSaved + 1}?`, [
               { text: 'Ricomincia', style: 'destructive', onPress: async () => { await AsyncStorage.removeItem('position'); isReadyRef.current = true; } },
-              { text: 'Riprendi', onPress: () => { const restoredDeck = buildDeck(filterSaved, shuffledSaved || false, parsedNR); setFilter(filterSaved); setIsShuffled(shuffledSaved || false); setDeck(restoredDeck); setIdx(Math.min(idxSaved, restoredDeck.length - 1)); isReadyRef.current = true; } },
+              { text: 'Riprendi', onPress: () => { const restoredDeck = buildDeck(filterSaved, shuffledSaved || false, parsedNR); setFilter(filterSaved); setIsShuffled(shuffledSaved || false); setDeck(restoredDeck); setIdx(Math.min(idxSaved, restoredDeck.length - 1)); if (modeSaved) setMode(modeSaved); if (shadowIdxSaved) setShadowIdx(shadowIdxSaved); if (shadowFilterSaved) { setShadowFilter(shadowFilterSaved); const filtered = shadowFilterSaved === 'all' ? SHADOW : SHADOW.filter(x => x.tag === shadowFilterSaved); setShadowDeck(filtered); } isReadyRef.current = true; } },
             ]);
             return;
           }
@@ -181,7 +181,7 @@ export default function App() {
   useEffect(() => { AsyncStorage.setItem('nr_list', JSON.stringify(notRemembered)).catch(() => {}); }, [notRemembered]);
   useEffect(() => {
     if (!isReadyRef.current) return;
-    AsyncStorage.setItem('position', JSON.stringify({ filterSaved: filter, idxSaved: idx, shuffledSaved: isShuffled })).catch(() => {});
+    AsyncStorage.setItem('position', JSON.stringify({ filterSaved: filter, idxSaved: idx, shuffledSaved: isShuffled, modeSaved: mode, shadowIdxSaved: shadowIdx, shadowFilterSaved: shadowFilter })).catch(() => {});
   }, [idx, filter, isShuffled]);
 
   const applyFilter = (f) => { setFilter(f); setDeck(buildDeck(f, isShuffled, notRemembered)); setIdx(0); };
@@ -561,7 +561,7 @@ export default function App() {
             </View>
             <Text style={s.emoji}>🗣</Text>
             <Text style={[s.wordEN, { textAlign: 'center', fontSize: 20, lineHeight: 28, color: '#e0f7ff' }]}>
-              {shadowPhase === 'waiting' ? '· · ·' : (shadowDeck[shadowIdx]?.en || '')}
+              {shadowDeck[shadowIdx]?.en || ''}
             </Text>
             <View style={[s.tag, { backgroundColor: 'rgba(8,145,178,0.15)', borderColor: 'rgba(8,145,178,0.3)' }]}>
               <Text style={[s.tagTxt, { color: '#0891b2' }]}>
