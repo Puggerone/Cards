@@ -11,6 +11,7 @@ import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import CARDS from './src/cards';
 import SHADOW from './src/shadowing';
+import EXERCISES from './src/exercises';
 
 const APP_VERSION = '1.5';
 
@@ -60,6 +61,10 @@ export default function App() {
   const [shadowDeck, setShadowDeck] = useState(SHADOW);
   const [shadowIdx, setShadowIdx] = useState(0);
   const [shadowPhase, setShadowPhase] = useState('idle');
+  const [exDeck, setExDeck] = useState(EXERCISES);
+  const [exIdx, setExIdx] = useState(0);
+  const [exSelected, setExSelected] = useState(null);
+  const [exResult, setExResult] = useState(null);
 
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -74,10 +79,9 @@ export default function App() {
   const isReadyRef = useRef(false);
   const soundRef = useRef(null);
   const appStateRef = useRef(AppState.currentState);
-  const restoreShadowIdxRef = useRef(null); // fix ripristino shadow
-  const isRestoringRef = useRef(false); // true finché il ripristino non è completato
+  const restoreShadowIdxRef = useRef(null);
+  const isRestoringRef = useRef(false);
 
-  // ── Audio session — si registra come player audio del sistema ────
   useEffect(() => {
     const setupAudio = async () => {
       try {
@@ -98,7 +102,6 @@ export default function App() {
     };
   }, []);
 
-  // ── AppState: riprendi se torna in foreground ─────────────────────
   useEffect(() => {
     const sub = AppState.addEventListener('change', nextState => {
       if (appStateRef.current.match(/inactive|background/) && nextState === 'active') {
@@ -113,7 +116,6 @@ export default function App() {
     return () => sub.remove();
   }, [mode, shadowPhase, shadowIdx, shadowDeck]);
 
-  // ── Microfono ─────────────────────────────────────────────────────
   useEffect(() => {
     const requestMic = async () => {
       if (Platform.OS === 'android') {
@@ -127,7 +129,6 @@ export default function App() {
     requestMic();
   }, []);
 
-  // ── Voice recognition ─────────────────────────────────────────────
   useEffect(() => {
     Voice.onSpeechResults = (e) => {
       if (cancelledRef.current || pausedRef.current) return;
@@ -182,8 +183,6 @@ export default function App() {
                   setIdx(Math.min(idxSaved, restoredDeck.length - 1));
                   if (modeSaved === 'shadow') {
                     const targetShadowIdx = (shadowIdxSaved !== undefined && shadowIdxSaved !== null) ? shadowIdxSaved : 0;
-                    // Imposta ref E state — la ref gestisce il batch update
-                    // lo state assicura che il progresso sia corretto dopo
                     restoreShadowIdxRef.current = targetShadowIdx;
                     isRestoringRef.current = true;
                     setShadowIdx(targetShadowIdx);
@@ -212,8 +211,7 @@ export default function App() {
   }, []);
 
   useEffect(() => { AsyncStorage.setItem('nr_list', JSON.stringify(notRemembered)).catch(() => {}); }, [notRemembered]);
-  // Salva posizione ogni volta che cambia qualcosa di rilevante
-  // Nessun blocco isReadyRef — il salvataggio avviene sempre
+
   const savePosition = useCallback(() => {
     AsyncStorage.setItem('position', JSON.stringify({
       filterSaved: filter,
@@ -253,7 +251,6 @@ export default function App() {
   };
   const stopPulse = () => { pulseAnim.stopAnimation(); pulseAnim.setValue(1); };
 
-  // ── Stop audio ────────────────────────────────────────────────────
   const stopSound = useCallback(async () => {
     if (soundRef.current) {
       try {
@@ -287,8 +284,6 @@ export default function App() {
     revealRef.current = setTimeout(() => setShown(true), 3000);
   }, []);
 
-  // ── Shadow mode con expo-av + URI dinamico ────────────────────────
-  // Usa expo-file-system per leggere i MP3 dal bundle senza require()
   const startShadowCard = useCallback(async (sentence) => {
     if (cancelledRef.current || pausedRef.current) return;
     cancelledRef.current = false;
@@ -300,11 +295,17 @@ export default function App() {
 
     try {
       await stopSound();
+      // shouldPlay:false + piccolo delay: evita che l'audio focus di Android/iOS
+      // (soprattutto dopo un risveglio da background/schermo spento) tagli la
+      // prima parola della frase.
       const { sound } = await Audio.Sound.createAsync(
         { uri: assetUri },
-        { shouldPlay: true, volume: 1.0 }
+        { shouldPlay: false, volume: 1.0 }
       );
       soundRef.current = sound;
+      await new Promise(resolve => setTimeout(resolve, 250));
+      if (cancelledRef.current || pausedRef.current) { await stopSound(); return; }
+      await sound.playAsync();
 
       sound.setOnPlaybackStatusUpdate((status) => {
         if (!status.isLoaded) return;
@@ -318,9 +319,12 @@ export default function App() {
               await stopSound();
               const { sound: sound2 } = await Audio.Sound.createAsync(
                 { uri: assetUri },
-                { shouldPlay: true, volume: 1.0 }
+                { shouldPlay: false, volume: 1.0 }
               );
               soundRef.current = sound2;
+              await new Promise(resolve => setTimeout(resolve, 250));
+              if (cancelledRef.current || pausedRef.current) { await stopSound(); return; }
+              await sound2.playAsync();
               sound2.setOnPlaybackStatusUpdate((s2) => {
                 if (!s2.isLoaded) return;
                 if (s2.didJustFinish) {
@@ -335,11 +339,10 @@ export default function App() {
             } catch (e) {
               setShadowIdx(p => p < shadowDeck.length - 1 ? p + 1 : p);
             }
-          }, 5000);
+          }, 3000);
         }
       });
     } catch (e) {
-      // Fallback: expo-speech se il file non si carica
       Speech.speak(sentence.en, {
         language: 'en-US', rate: 0.82,
         onDone: () => {
@@ -359,7 +362,7 @@ export default function App() {
                 }, 2000);
               },
             });
-          }, 5000);
+          }, 3000);
         },
       });
     }
@@ -372,6 +375,20 @@ export default function App() {
   const goPrev = useCallback(() => {
     if (idx > 0) animateOut(() => setIdx(prev => prev - 1));
   }, [idx]); // eslint-disable-line
+
+  const selectExOption = useCallback((opt) => {
+    if (exResult) return;
+    const item = exDeck[exIdx];
+    if (!item) return;
+    setExSelected(opt);
+    setExResult(opt === item.answer ? 'correct' : 'wrong');
+  }, [exDeck, exIdx, exResult]);
+
+  const nextExercise = useCallback(() => {
+    setExSelected(null);
+    setExResult(null);
+    setExIdx(p => (p + 1 < exDeck.length ? p + 1 : p));
+  }, [exDeck.length]);
 
   const handleAnswer = useCallback((heard, card) => {
     if (cancelledRef.current || pausedRef.current) return;
@@ -467,15 +484,11 @@ export default function App() {
     if (mode !== 'shadow') return;
     if (pausedRef.current) return;
     cancelledRef.current = false;
-    // Usa sempre shadowIdx — è già stato impostato correttamente
-    // restoreShadowIdxRef serve solo come flag per evitare doppi avvii
     if (restoreShadowIdxRef.current !== null) {
       if (isRestoringRef.current) {
-        // Primo trigger del batch — aspetta il secondo
         isRestoringRef.current = false;
         return;
       }
-      // Secondo trigger — ora tutti gli state sono sincronizzati
       restoreShadowIdxRef.current = null;
     }
     const sentence = shadowDeck[shadowIdx];
@@ -486,7 +499,7 @@ export default function App() {
   }, [shadowIdx, shadowDeck, mode]); // eslint-disable-line
 
   useEffect(() => {
-    if (mode === 'shadow') return;
+    if (mode === 'shadow' || mode === 'exercise') return;
     if (pausedRef.current) return;
     cancelledRef.current = false; stopAll();
     const card = deck[idx];
@@ -499,15 +512,11 @@ export default function App() {
   const switchMode = (m) => {
     if (m === 'voice' && useMic && !micPermission) Alert.alert('Microfono', 'Permesso microfono non concesso.');
     stopAll();
-    // Salva la posizione del mode CORRENTE (prima del cambio).
-    // `mode` qui è ancora il valore attuale — es. 'shadow' se stiamo uscendo da shadow.
-    // Questo garantisce che alla riapertura l'alert mostri il mode giusto.
-    // NON usare `m` (destinazione) — useremmo il mode sbagliato.
     AsyncStorage.setItem('position', JSON.stringify({
       filterSaved: filter,
       idxSaved: idx,
       shuffledSaved: isShuffled,
-      modeSaved: mode,        // mode corrente, non `m` (destinazione)
+      modeSaved: mode,
       shadowIdxSaved: shadowIdx,
       shadowFilterSaved: shadowFilter,
     })).catch(() => {});
@@ -516,8 +525,6 @@ export default function App() {
     if (m !== 'shadow') {
       setIdx(i => i);
     }
-    // shadowIdx NON viene resettato — mantiene la posizione corrente
-    // così se si torna in shadow, l'useEffect riparte dalla frase giusta
   };
 
   const card = deck[idx] || CARDS[0];
@@ -554,11 +561,11 @@ export default function App() {
         </View>
         <Text style={s.subtitle}>{CARDS.length} parole & phrasal verbs</Text>
         <View style={s.modeRow}>
-          {['read', 'voice', 'shadow'].map(m => (
+          {['read', 'voice', 'shadow', 'exercise'].map(m => (
             <TouchableOpacity key={m} onPress={() => switchMode(m)}
-              style={[s.modeBtn, mode === m && { backgroundColor: m === 'voice' ? '#9333ea' : m === 'shadow' ? '#0891b2' : '#2563eb' }]}>
+              style={[s.modeBtn, mode === m && { backgroundColor: m === 'voice' ? '#9333ea' : m === 'shadow' ? '#0891b2' : m === 'exercise' ? '#22c55e' : '#2563eb' }]}>
               <Text style={[s.modeTxt, mode === m && { color: '#fff' }]}>
-                {m === 'read' ? '📖 Read' : m === 'voice' ? '🎤 Voice' : '🗣 Shadow'}
+                {m === 'read' ? '📖 Read' : m === 'voice' ? '🎤 Voice' : m === 'shadow' ? '🗣 Shadow' : '✏️ Esercizi'}
               </Text>
             </TouchableOpacity>
           ))}
@@ -598,7 +605,7 @@ export default function App() {
         )}
       </View>
 
-      {mode !== 'shadow' && (
+      {mode !== 'shadow' && mode !== 'exercise' && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.filtersRow}
           contentContainerStyle={{ gap: 6, alignItems: 'center', paddingRight: 16 }}>
           {filters.map(f => (
@@ -620,11 +627,11 @@ export default function App() {
       <View style={s.progRow}>
         <View style={s.progBg}>
           <View style={[s.progFill, {
-            width: mode === 'shadow' ? `${((shadowIdx + 1) / shadowDeck.length) * 100}%` : `${((idx + 1) / deck.length) * 100}%`,
-            backgroundColor: mode === 'shadow' ? '#0891b2' : '#4f8ef7'
+            width: mode === 'shadow' ? `${((shadowIdx + 1) / shadowDeck.length) * 100}%` : mode === 'exercise' ? `${((exIdx + 1) / exDeck.length) * 100}%` : `${((idx + 1) / deck.length) * 100}%`,
+            backgroundColor: mode === 'shadow' ? '#0891b2' : mode === 'exercise' ? '#22c55e' : '#4f8ef7'
           }]} />
         </View>
-        <Text style={s.progTxt}>{mode === 'shadow' ? `${shadowIdx + 1} / ${shadowDeck.length}` : `${idx + 1} / ${deck.length}`}</Text>
+        <Text style={s.progTxt}>{mode === 'shadow' ? `${shadowIdx + 1} / ${shadowDeck.length}` : mode === 'exercise' ? `${exIdx + 1} / ${exDeck.length}` : `${idx + 1} / ${deck.length}`}</Text>
       </View>
 
       {mode === 'shadow' && (
@@ -649,7 +656,7 @@ export default function App() {
         </Animated.View>
       )}
 
-      {mode !== 'shadow' && (
+      {mode !== 'shadow' && mode !== 'exercise' && (
         <Animated.View style={[s.card, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
           <LinearGradient colors={['#0f1e3d', '#0b1428']} style={s.cardTop}>
             {voiceBadgeInfo && (
@@ -708,6 +715,39 @@ export default function App() {
         </Animated.View>
       )}
 
+      {mode === 'exercise' && (
+        <View style={s.card}>
+          <LinearGradient colors={['#0f1e3d', '#0b1428']} style={s.cardTop}>
+            <Text style={s.emoji}>✏️</Text>
+            <Text style={[s.wordEN, { textAlign: 'center', fontSize: 18, lineHeight: 26, color: '#eef2ff' }]}>
+              {exDeck[exIdx]?.blank}
+            </Text>
+          </LinearGradient>
+          <LinearGradient colors={['#111827', '#080b14']} style={[s.cardBot, { padding: 20 }]}>
+            <View style={{ width: '100%', gap: 8 }}>
+              {exDeck[exIdx]?.options.map((opt, i) => {
+                const isSelected = exSelected === opt;
+                const isCorrectOpt = opt === exDeck[exIdx].answer;
+                let bg = '#0f1624', border = 'rgba(255,255,255,0.1)', txt = '#eef2ff';
+                if (exResult && isCorrectOpt) { bg = 'rgba(74,222,128,0.15)'; border = '#4ade80'; txt = '#4ade80'; }
+                else if (exResult && isSelected && !isCorrectOpt) { bg = 'rgba(239,68,68,0.15)'; border = '#f87171'; txt = '#f87171'; }
+                return (
+                  <TouchableOpacity key={i} onPress={() => selectExOption(opt)}
+                    style={{ padding: 12, borderRadius: 12, borderWidth: 1, borderColor: border, backgroundColor: bg }}>
+                    <Text style={{ color: txt, fontSize: 15, textAlign: 'center', fontWeight: '600' }}>{opt}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            {exResult && (
+              <TouchableOpacity onPress={nextExercise} style={[s.navMain, { marginTop: 16 }]}>
+                <Text style={s.navMainTxt}>→</Text>
+              </TouchableOpacity>
+            )}
+          </LinearGradient>
+        </View>
+      )}
+
       <View style={s.ctrlRow}>
         {mode === 'shadow' ? (
           <>
@@ -723,7 +763,7 @@ export default function App() {
             <TouchableOpacity onPress={goPrev} disabled={idx === 0} style={[s.navBtn, idx === 0 && s.dis]}><Text style={s.navTxt}>←</Text></TouchableOpacity>
             <TouchableOpacity onPress={goNext} disabled={idx === deck.length - 1} style={[s.navMain, idx === deck.length - 1 && s.dis]}><Text style={s.navMainTxt}>→</Text></TouchableOpacity>
           </>
-        ) : (
+        ) : mode === 'exercise' ? null : (
           <>
             <TouchableOpacity onPress={() => { stopAll(); pausedRef.current = false; setPaused(false); cancelledRef.current = false; animateOut(() => setIdx(p => Math.max(0, p - 1))); }} style={s.navBtn}><Text style={s.navTxt}>←</Text></TouchableOpacity>
             <TouchableOpacity onPress={() => { stopAll(); pausedRef.current = false; setPaused(false); cancelledRef.current = false; animateOut(() => setIdx(p => Math.min(deck.length - 1, p + 1))); }} style={s.navBtn}><Text style={s.navTxt}>→ Salta</Text></TouchableOpacity>
