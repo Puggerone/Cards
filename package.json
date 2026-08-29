@@ -25,5 +25,8 @@
   "overrides": {
     "@expo/config-plugins": "~8.0.0"
   },
+  "resolutions": {
+    "@expo/config-plugins": "~8.0.0"
+  },
   "private": true
 }
