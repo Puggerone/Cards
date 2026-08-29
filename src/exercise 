@@ -207,5 +207,4 @@ const EXERCISES = [
   { id:199, blank:"She _____ his resistance with patience and persistence.", answer:"wore down", options:["drew on", "singled out", "wore down", "made up for"], tag:"phrasal-b2" },
   { id:200, blank:"The novelty _____ quickly once the real work began.", answer:"wore off", options:["wear off", "give in", "wore down", "wore off"], tag:"phrasal-b2" },
 ];
-
 export default EXERCISES;
