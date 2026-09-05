@@ -13,6 +13,8 @@ import CARDS from './src/cards';
 import SHADOW from './src/shadowing';
 import EXERCISES from './src/exercises';
 
+const EXERCISES_BY_ID = Object.fromEntries(EXERCISES.map(e => [e.id, e]));
+
 const APP_VERSION = '1.5';
 
 const TAG_COLORS = {
@@ -61,7 +63,7 @@ export default function App() {
   const [shadowDeck, setShadowDeck] = useState(SHADOW);
   const [shadowIdx, setShadowIdx] = useState(0);
   const [shadowPhase, setShadowPhase] = useState('idle');
-  const [exDeck, setExDeck] = useState(EXERCISES);
+  const [exDeck, setExDeck] = useState(() => shuffle(EXERCISES));
   const [exIdx, setExIdx] = useState(0);
   const [exSelected, setExSelected] = useState(null);
   const [exResult, setExResult] = useState(null);
@@ -166,12 +168,14 @@ export default function App() {
         if (saved) setNotRemembered(parsedNR);
         const pos = await AsyncStorage.getItem('position');
         if (pos) {
-          const { filterSaved, idxSaved, shuffledSaved, modeSaved, shadowIdxSaved, shadowFilterSaved } = JSON.parse(pos);
-          if (idxSaved > 0 || filterSaved !== 'all' || shuffledSaved || modeSaved === 'shadow' || modeSaved === 'voice') {
+          const { filterSaved, idxSaved, shuffledSaved, modeSaved, shadowIdxSaved, shadowFilterSaved, exIdxSaved, exOrderSaved } = JSON.parse(pos);
+          if (idxSaved > 0 || filterSaved !== 'all' || shuffledSaved || modeSaved === 'shadow' || modeSaved === 'voice' || modeSaved === 'exercise' || exIdxSaved > 0) {
             const alertMsg = modeSaved === 'shadow'
               ? `Vuoi riprendere lo Shadow dalla frase ${(shadowIdxSaved || 0) + 1}?`
               : modeSaved === 'voice'
               ? `Vuoi riprendere Voice dalla carta ${idxSaved + 1}?`
+              : modeSaved === 'exercise'
+              ? `Vuoi riprendere gli Esercizi dalla frase ${(exIdxSaved || 0) + 1}?`
               : `Vuoi riprendere dalla carta ${idxSaved + 1}?`;
             Alert.alert('Bentornato!', alertMsg, [
               { text: 'Ricomincia', style: 'destructive', onPress: async () => { await AsyncStorage.removeItem('position'); isReadyRef.current = true; } },
@@ -197,6 +201,14 @@ export default function App() {
                     setMode('shadow');
                   } else if (modeSaved === 'voice') {
                     setMode('voice');
+                  } else if (modeSaved === 'exercise') {
+                    const restoredExDeck = (exOrderSaved && exOrderSaved.length)
+                      ? exOrderSaved.map(id => EXERCISES_BY_ID[id]).filter(Boolean)
+                      : [];
+                    const finalExDeck = restoredExDeck.length ? restoredExDeck : shuffle(EXERCISES);
+                    setExDeck(finalExDeck);
+                    setExIdx(Math.min(exIdxSaved || 0, finalExDeck.length - 1));
+                    setMode('exercise');
                   }
                   isReadyRef.current = true;
                 } },
@@ -220,13 +232,15 @@ export default function App() {
       modeSaved: mode,
       shadowIdxSaved: shadowIdx,
       shadowFilterSaved: shadowFilter,
+      exIdxSaved: exIdx,
+      exOrderSaved: exDeck.map(e => e.id),
     })).catch(() => {});
-  }, [filter, idx, isShuffled, mode, shadowIdx, shadowFilter]);
+  }, [filter, idx, isShuffled, mode, shadowIdx, shadowFilter, exIdx, exDeck]);
 
   useEffect(() => {
     if (!isReadyRef.current) return;
     savePosition();
-  }, [idx, filter, isShuffled, mode, shadowIdx, shadowFilter]); // eslint-disable-line
+  }, [idx, filter, isShuffled, mode, shadowIdx, shadowFilter, exIdx, exDeck]); // eslint-disable-line
 
   const applyFilter = (f) => { setFilter(f); setDeck(buildDeck(f, isShuffled, notRemembered)); setIdx(0); };
 
@@ -519,6 +533,8 @@ export default function App() {
       modeSaved: mode,
       shadowIdxSaved: shadowIdx,
       shadowFilterSaved: shadowFilter,
+      exIdxSaved: exIdx,
+      exOrderSaved: exDeck.map(e => e.id),
     })).catch(() => {});
     pausedRef.current = false; setPaused(false); cancelledRef.current = false;
     setShadowPhase('idle'); setMode(m);
